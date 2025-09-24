@@ -1,0 +1,46 @@
+import mongoose from 'mongoose';
+
+const notificationSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  title: {
+    type: String,
+    required: true,
+    trim: true,
+    maxlength: [100, 'Title cannot exceed 100 characters']
+  },
+  message: {
+    type: String,
+    required: true,
+    trim: true,
+    maxlength: [500, 'Message cannot exceed 500 characters']
+  },
+  type: {
+    type: String,
+    enum: ['appointment_reminder', 'promotion', 'clinic_update', 'general'],
+    default: 'general'
+  },
+  isRead: {
+    type: Boolean,
+    default: false
+  },
+  scheduledFor: {
+    type: Date,
+    default: Date.now
+  },
+  metadata: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
+  }
+}, {
+  timestamps: true
+});
+
+// Index for efficient queries
+notificationSchema.index({ userId: 1, isRead: 1 });
+notificationSchema.index({ scheduledFor: 1 });
+
+export default mongoose.model('Notification', notificationSchema);
