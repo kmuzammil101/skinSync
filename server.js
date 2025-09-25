@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/user.js';
 import notificationRoutes from './routes/notifications.js';
+import path from 'path';
 
 dotenv.config();
 
@@ -17,6 +18,9 @@ app.use(cors());
 app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.resolve('uploads')));
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/skinsync', {

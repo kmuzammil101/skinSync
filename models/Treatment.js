@@ -5,6 +5,10 @@ const treatmentSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    treatmentType: {
+        type: String,
+        required: true
+    },
     clinic: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Clinic',

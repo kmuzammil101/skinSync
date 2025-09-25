@@ -38,7 +38,14 @@ export const completeProfileSchema = z.object({
   bio: z.string()
     .max(500, 'Bio cannot exceed 500 characters')
     .optional(),
-  email: emailSchema
+  email: emailSchema,
+  profileImage: z.string().optional(),
+  skintype: z.array(z.string()).optional(),
+  skinConcerns: z.array(z.string()).optional(),
+  lifestyle: z.array(z.string()).optional(),
+  skinCondition: z.array(z.string()).optional(),
+  medication: z.string().optional(),
+  skinGoals: z.array(z.string()).optional()
 });
 
 // Social login schema

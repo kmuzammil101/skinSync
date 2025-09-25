@@ -36,7 +36,8 @@ const upload = multer({
 // Expose simple helpers to be composed in routes
 export const imageUpload = {
   single: (fieldName = 'profileImage') => upload.single(fieldName),
-  multiple: (fieldName = 'images', maxCount = 10) => upload.array(fieldName, maxCount)
+  multiple: (fieldName = 'images', maxCount = 10) => upload.array(fieldName, maxCount),
+  none: () => upload.none()
 };
 
 // Backward compatibility default export (raw multer instance)

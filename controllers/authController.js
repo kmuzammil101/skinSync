@@ -149,7 +149,20 @@ export const verifyOTP = async (req, res) => {
 // Complete user profile (for new users after OTP verification)
 export const completeProfile = async (req, res) => {
   try {
-    const { name, phone, location, bio, email } = req.body;
+    const {
+      name,
+      phone,
+      location,
+      bio,
+      email,
+      skintype,
+      skinConcerns,
+      lifestyle,
+      skinCondition,
+      medication,
+      skinGoals,
+      profileImage
+    } = req.body;
     const profileImageFile = req.file;
     if (!email) {
       return res.status(400).json({
@@ -172,9 +185,18 @@ export const completeProfile = async (req, res) => {
     if (phone) updateData.phone = phone;
     if (location) updateData.location = location;
     if (bio) updateData.bio = bio;
-    // Profile image is optional; set only if uploaded
+    if (skintype) updateData.skintype = skintype;
+    if (skinConcerns) updateData.skinConcerns = skinConcerns;
+    if (lifestyle) updateData.lifestyle = lifestyle;
+    if (skinCondition) updateData.skinCondition = skinCondition;
+    if (medication) updateData.medication = medication;
+    if (skinGoals) updateData.skinGoals = skinGoals;
+
+    // Profile image is optional; prioritize uploaded file, fallback to URL string
     if (profileImageFile && profileImageFile.filename) {
       updateData.profileImage = profileImageFile.filename;
+    } else if (profileImage && typeof profileImage === 'string') {
+      updateData.profileImage = profileImage;
     }
 
     const updatedUser = await User.findByIdAndUpdate(

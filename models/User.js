@@ -30,6 +30,30 @@ const userSchema = new mongoose.Schema({
     trim: true,
     maxlength: [500, 'Bio cannot exceed 500 characters']
   },
+  skintype: {
+    type: [String],
+    default: []
+  },
+  skinConcerns: {
+    type: [String],
+    default: []
+  },
+  lifestyle: {
+    type: [String],
+    default: []
+  },
+  skinCondition: {
+    type: [String],
+    default: []
+  },
+  medication: {
+    type: String,
+    default: null
+  },
+  skinGoals: {
+    type: [String],
+    default: []
+  },
   isEmailVerified: {
     type: Boolean,
     default: false
