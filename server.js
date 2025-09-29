@@ -6,6 +6,10 @@ import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/user.js';
 import notificationRoutes from './routes/notifications.js';
+import homeRoutes from './routes/home.js';
+import treatmentRoutes from './routes/treatments.js';
+import appointmentRoutes from './routes/appointments.js';
+import clinicRoutes from './routes/clinics.js';
 import path from 'path';
 
 dotenv.config();
@@ -34,6 +38,10 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/skinsync'
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/home', homeRoutes);
+app.use('/api/treatments', treatmentRoutes);
+app.use('/api/appointments', appointmentRoutes);
+app.use('/api/clinics', clinicRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

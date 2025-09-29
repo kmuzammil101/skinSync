@@ -8,10 +8,15 @@ import {
 } from '../schemas/notificationSchemas.js';
 import {
   getUserNotifications,
+  getNotificationById,
+  getUnreadCount,
+  getNotificationsByType,
   markNotificationAsRead,
   markAllNotificationsAsRead,
   deleteNotification,
-  createNotification
+  deleteAllNotifications,
+  createNotification,
+  createAppointmentReminder
 } from '../controllers/notificationController.js';
 
 const router = express.Router();
@@ -20,9 +25,21 @@ const router = express.Router();
 router.use(authenticateToken);
 
 // Routes
-router.get('/',
-  validateQuery(getNotificationsQuerySchema),
+router.get('/get-user-notifications',
+  // validateQuery(getNotificationsQuerySchema),
   getUserNotifications
+);
+
+// Get unread notifications count
+router.get('/unread-count', getUnreadCount);
+
+// Get notifications by type
+router.get('/type/:type', getNotificationsByType);
+
+// Get notification by ID
+router.get('/:notificationId', 
+  validateParams(notificationIdSchema),
+  getNotificationById
 );
 
 router.put('/:notificationId/read', 
@@ -37,10 +54,16 @@ router.delete('/:notificationId',
   deleteNotification
 );
 
+// Delete all notifications
+router.delete('/', deleteAllNotifications);
+
 // Admin route for creating notifications
 router.post('/create',
   validate(createNotificationSchema),
   createNotification
 );
+
+// Create appointment reminder
+router.post('/appointment-reminder', createAppointmentReminder);
 
 export default router;

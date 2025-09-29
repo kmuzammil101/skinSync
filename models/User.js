@@ -82,7 +82,11 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
-  deviceToken: [{ type: String }]
+  loyaltyPoints: {
+    type: Number,
+    default: 0
+  },
+  deviceToken: { type: String }
 }, {
   timestamps: true
 });

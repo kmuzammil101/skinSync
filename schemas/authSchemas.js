@@ -28,7 +28,8 @@ export const completeProfileSchema = z.object({
   name: z.string()
     .min(2, 'Name must be at least 2 characters')
     .max(50, 'Name cannot exceed 50 characters')
-    .regex(/^[a-zA-Z\s]+$/, 'Name can only contain letters and spaces'),
+    .regex(/^[a-zA-Z0-9\s]+$/, 'Name can only contain letters, numbers, and spaces')
+  ,
   phone: z.string()
     .regex(/^[\+]?[1-9][\d]{0,15}$/, 'Please provide a valid phone number')
     .optional(),

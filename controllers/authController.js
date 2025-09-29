@@ -55,16 +55,106 @@ export const sendOTP = async (req, res) => {
 };
 
 // Verify OTP and determine if user needs to complete profile
+// export const verifyOTP = async (req, res) => {
+//   try {
+//     const { email, code } = req.body;
+
+//     // Find verification code
+//     const verificationRecord = await VerificationCode.findOne({
+//       email,
+//       code,
+//       type: 'email_verification',
+//       isUsed: false,
+//       expiresAt: { $gt: new Date() }
+//     });
+
+//     if (!verificationRecord) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Invalid or expired OTP'
+//       });
+//     }
+
+//     // Check attempts
+//     if (verificationRecord.attempts >= 5) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Too many failed attempts. Please request a new OTP.'
+//       });
+//     }
+
+//     // Mark code as used
+//     verificationRecord.isUsed = true;
+//     await verificationRecord.save();
+
+//     // Check if user exists
+//     let user = await User.findOne({ email });
+
+//     if (!user) {
+//       // New user - create with minimal data (ensure required name present)
+//       const fallbackName = (email && email.split('@')[0]) || 'User';
+//       user = new User({
+//         email,
+//         name: fallbackName,
+//         isEmailVerified: true
+//       });
+//       await user.save();
+
+//       // Send welcome email
+//       // await sendWelcomeEmail(email, 'User');
+
+//       return res.json({
+//         success: true,
+//         message: 'OTP verified successfully. Please complete your profile.',
+//         data: {
+//           isNewUser: true,
+//           user: user.toJSON(),
+//           requiresProfileCompletion: true
+//         }
+//       });
+//     } else {
+//       // Existing user - update verification status and last login
+//       user.isEmailVerified = true;
+//       // Ensure required name exists for legacy users
+//       if (!user.name) {
+//         user.name = (email && email.split('@')[0]) || 'User';
+//       }
+//       user.lastLogin = new Date();
+//       await user.save();
+
+//       // Generate token for existing user
+//       const token = generateToken(user._id);
+
+//       return res.json({
+//         success: true,
+//         message: 'Login successful',
+//         data: {
+//           isNewUser: false,
+//           token,
+//           user: user.toJSON(),
+//           requiresProfileCompletion: !user.name // Check if profile is complete
+//         }
+//       });
+//     }
+
+//   } catch (error) {
+//     console.error('Verify OTP error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Internal server error'
+//     });
+//   }
+// };
+
 export const verifyOTP = async (req, res) => {
   try {
     const { email, code } = req.body;
 
-    // Find verification code
+    // Find verification code (ignore isUsed, attempts)
     const verificationRecord = await VerificationCode.findOne({
       email,
       code,
       type: 'email_verification',
-      isUsed: false,
       expiresAt: { $gt: new Date() }
     });
 
@@ -75,17 +165,8 @@ export const verifyOTP = async (req, res) => {
       });
     }
 
-    // Check attempts
-    if (verificationRecord.attempts >= 5) {
-      return res.status(400).json({
-        success: false,
-        message: 'Too many failed attempts. Please request a new OTP.'
-      });
-    }
-
-    // Mark code as used
-    verificationRecord.isUsed = true;
-    await verificationRecord.save();
+    // ✅ Do NOT check attempts
+    // ✅ Do NOT mark as used
 
     // Check if user exists
     let user = await User.findOne({ email });
@@ -100,39 +181,37 @@ export const verifyOTP = async (req, res) => {
       });
       await user.save();
 
-      // Send welcome email
-      // await sendWelcomeEmail(email, 'User');
-
       return res.json({
         success: true,
         message: 'OTP verified successfully. Please complete your profile.',
         data: {
           isNewUser: true,
-          user: user.toJSON(),
-          requiresProfileCompletion: true
+          requiresProfileCompletion: true,
+          user: {
+            ...user.toJSON(),
+            token: generateToken(user._id) // embed token in user object
+          }
         }
       });
     } else {
       // Existing user - update verification status and last login
       user.isEmailVerified = true;
-      // Ensure required name exists for legacy users
       if (!user.name) {
         user.name = (email && email.split('@')[0]) || 'User';
       }
       user.lastLogin = new Date();
       await user.save();
 
-      // Generate token for existing user
-      const token = generateToken(user._id);
-
       return res.json({
         success: true,
         message: 'Login successful',
         data: {
           isNewUser: false,
-          token,
-          user: user.toJSON(),
-          requiresProfileCompletion: !user.name // Check if profile is complete
+          requiresProfileCompletion: !user.name,
+          user: {
+            ...user.toJSON(),
+            token: generateToken(user._id) // embed token in user object
+          }
         }
       });
     }
@@ -145,6 +224,7 @@ export const verifyOTP = async (req, res) => {
     });
   }
 };
+
 
 // Complete user profile (for new users after OTP verification)
 export const completeProfile = async (req, res) => {
@@ -163,6 +243,7 @@ export const completeProfile = async (req, res) => {
       skinGoals,
       profileImage
     } = req.body;
+
     const profileImageFile = req.file;
     if (!email) {
       return res.status(400).json({
@@ -192,7 +273,7 @@ export const completeProfile = async (req, res) => {
     if (medication) updateData.medication = medication;
     if (skinGoals) updateData.skinGoals = skinGoals;
 
-    // Profile image is optional; prioritize uploaded file, fallback to URL string
+    // Profile image handling
     if (profileImageFile && profileImageFile.filename) {
       updateData.profileImage = profileImageFile.filename;
     } else if (profileImage && typeof profileImage === 'string') {
@@ -208,13 +289,25 @@ export const completeProfile = async (req, res) => {
     // Generate token
     const token = generateToken(updatedUser._id);
 
+    // Attach token inside user object
+    const userObj = updatedUser.toJSON();
+    userObj.token = token;
+
+    // Convert arrays into key-value pairs
+    const convertToKeyValue = (arr) => 
+      Array.isArray(arr) ? arr.map((item, index) => ({ key: index, value: item })) : arr;
+
+    userObj.skintype = convertToKeyValue(userObj.skintype);
+    userObj.skinConcerns = convertToKeyValue(userObj.skinConcerns);
+    userObj.lifestyle = convertToKeyValue(userObj.lifestyle);
+    userObj.skinCondition = convertToKeyValue(userObj.skinCondition);
+    userObj.medication = convertToKeyValue(userObj.medication);
+    userObj.skinGoals = convertToKeyValue(userObj.skinGoals);
+
     res.json({
       success: true,
       message: 'Profile completed successfully',
-      data: {
-        token,
-        user: updatedUser.toJSON()
-      }
+      data: { user: userObj }
     });
 
   } catch (error) {
@@ -358,4 +451,3 @@ export const socialLogin = async (req, res) => {
     });
   }
 };
-

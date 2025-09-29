@@ -28,7 +28,7 @@ export const getUserProfile = async (req, res) => {
 // Update user profile
 export const updateUserProfile = async (req, res) => {
   try {
-    const { name, phone, location, bio } = req.body;
+    const { name, phone, location, bio, profileImage } = req.body;
     const userId = req.user.userId;
 
     const updateData = {};
@@ -36,24 +36,37 @@ export const updateUserProfile = async (req, res) => {
     if (phone) updateData.phone = phone;
     if (location) updateData.location = location;
     if (bio) updateData.bio = bio;
+    if (profileImage) updateData.profileImage = profileImage;
 
-    const user = await User.findByIdAndUpdate(
+    const updatedUser = await User.findByIdAndUpdate(
       userId,
       updateData,
       { new: true, runValidators: true }
     );
 
-    if (!user) {
+    if (!updatedUser) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
 
+    // Convert arrays into key-value pairs
+    const convertToKeyValue = (arr) =>
+      Array.isArray(arr) ? arr.map((item, index) => ({ key: index, value: item })) : arr;
+
+    const userObj = updatedUser.toJSON();
+    userObj.skintype = convertToKeyValue(userObj.skintype);
+    userObj.skinConcerns = convertToKeyValue(userObj.skinConcerns);
+    userObj.lifestyle = convertToKeyValue(userObj.lifestyle);
+    userObj.skinCondition = convertToKeyValue(userObj.skinCondition);
+    userObj.medication = convertToKeyValue(userObj.medication);
+    userObj.skinGoals = convertToKeyValue(userObj.skinGoals);
+
     res.json({
       success: true,
       message: 'Profile updated successfully',
-      data: user
+      data: { user: userObj }
     });
 
   } catch (error) {
@@ -65,15 +78,19 @@ export const updateUserProfile = async (req, res) => {
   }
 };
 
+
 // Update notification preferences
 export const updateNotificationPreferences = async (req, res) => {
   try {
-    const { notificationsEnabled } = req.body;
+    const { notificationsEnabled, deviceToken } = req.body;
     const userId = req.user.userId;
+
+    // Build update object
+    const updateData = { notificationsEnabled,deviceToken };
 
     const user = await User.findByIdAndUpdate(
       userId,
-      { notificationsEnabled },
+      updateData,
       { new: true }
     );
 
@@ -88,7 +105,8 @@ export const updateNotificationPreferences = async (req, res) => {
       success: true,
       message: 'Notification preferences updated successfully',
       data: {
-        notificationsEnabled: user.notificationsEnabled
+        notificationsEnabled: user.notificationsEnabled,
+        deviceToken: user.deviceToken
       }
     });
 
@@ -100,6 +118,7 @@ export const updateNotificationPreferences = async (req, res) => {
     });
   }
 };
+
 
 // Delete user account
 export const deleteUserAccount = async (req, res) => {
