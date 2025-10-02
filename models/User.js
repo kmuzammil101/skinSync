@@ -32,18 +32,48 @@ const userSchema = new mongoose.Schema({
   },
   skintype: {
     type: [String],
+    enum: [
+      "Oily Skin",
+      "Dry Skin", 
+      "Combination Skin",
+      "Sensitive Skin",
+      "Normal Skin"
+    ],
     default: []
   },
   skinConcerns: {
     type: [String],
+    enum: [
+      "Acne Or Breakouts",
+      "Fine Lines Or Wrinkles", 
+      "Dark Spots Or Pigmentation",
+      "Redness Or Irritation",
+      "Dryness Or Dehydration",
+      "Dullness Or Uneven Tone",
+      "None Of Them"
+    ],
     default: []
   },
   lifestyle: {
     type: [String],
+    enum: [
+      "Do You Spend A lot Of Time Outdoors?",
+      "Do You Currently Follow A Skincare Regimen?",
+      "Do You Eat A Balanced Diet With Plenty Of Water?",
+      "Do You Get 7–8 Hours Of Sleep Regularly?",
+      "Do You Experience High Levels Of Stress?"
+    ],
     default: []
   },
   skinCondition: {
     type: [String],
+    enum: [
+      "Acne",
+      "Eczema", 
+      "Psoriasis",
+      "Rosacea",
+      "None Of The Above"
+    ],
     default: []
   },
   medication: {
@@ -52,6 +82,13 @@ const userSchema = new mongoose.Schema({
   },
   skinGoals: {
     type: [String],
+    enum: [
+      "Clearer Skin (Reduce Acne Or Breakouts)",
+      "Brighter Skin (Reduce Dullness Or Dark Spots)",
+      "Firmer Skin (Reduce Fine Lines Or Wrinkles)", 
+      "Hydrated Skin (Reduce Dryness Or Flakiness)",
+      "Even Skin Tone (Reduce Redness Or Pigmentation)"
+    ],
     default: []
   },
   isEmailVerified: {

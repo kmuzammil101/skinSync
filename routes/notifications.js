@@ -16,7 +16,11 @@ import {
   deleteNotification,
   deleteAllNotifications,
   createNotification,
-  createAppointmentReminder
+  createAppointmentReminder,
+  sendBulkNotification,
+  sendTopicNotification,
+  updateDeviceToken,
+  removeDeviceToken
 } from '../controllers/notificationController.js';
 
 const router = express.Router();
@@ -65,5 +69,13 @@ router.post('/create',
 
 // Create appointment reminder
 router.post('/appointment-reminder', createAppointmentReminder);
+
+// Device token management
+router.put('/device-token', updateDeviceToken);
+router.delete('/device-token', removeDeviceToken);
+
+// Admin routes for bulk notifications
+router.post('/bulk', sendBulkNotification);
+router.post('/topic', sendTopicNotification);
 
 export default router;

@@ -18,6 +18,7 @@ router.use(authenticateToken);
 // Create appointment
 router.post('/', createAppointment);
 
+
 // Get all appointments for user
 router.get('/', getAppointments);
 

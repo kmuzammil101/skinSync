@@ -1,30 +1,30 @@
 import mongoose from 'mongoose';
 
 const reviewSchema = new mongoose.Schema({
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  ratingStars: {
-    type: Number,
-    min: 1,
-    max: 5,
-    required: true
-  },
-  comment: {
-    type: String,
-    maxlength: 500
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    ratingStars: {
+        type: Number,
+        min: 1,
+        max: 5,
+        required: true
+    },
+    comment: {
+        type: String,
+        maxlength: 500
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    }
 });
 
 const proofOfExpertise = new mongoose.Schema({
-  image: { type: String },
-  name: { type: String }
+    image: { type: String },
+    name: { type: String }
 });
 
 const slowDaySchema = new mongoose.Schema({
@@ -55,14 +55,10 @@ const clinicSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    treatments: {
-        type: [mongoose.Schema.Types.ObjectId],
-        ref: 'Treatment'
-    },
     website: {
         type: String,
     },
-    buisnessHours: {
+    businessHours: {
         type: String,
         required: true
     },
@@ -71,7 +67,7 @@ const clinicSchema = new mongoose.Schema({
         type: [proofOfExpertise],
     },
     userReviews: [reviewSchema],
-    
+
     // Average rating and review count
     ratingStars: {
         type: Number,
@@ -83,7 +79,7 @@ const clinicSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
-    
+
     // Contact information
     phone: {
         type: String,
@@ -93,40 +89,42 @@ const clinicSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    
+
     // Location details
     coordinates: {
         latitude: { type: Number },
         longitude: { type: Number }
     },
-    
+
     // Status and availability
     isActive: {
         type: Boolean,
         default: true
     },
-    
-    // Social media links
-    socialMedia: {
-        facebook: { type: String },
-        instagram: { type: String },
-        twitter: { type: String }
-    }
 }, {
     timestamps: true
 });
 
 // Method to calculate average rating
 clinicSchema.methods.calculateAverageRating = function () {
-  if (this.userReviews.length === 0) {
-    this.ratingStars = 0;
-    this.ratingsCount = 0;
-  } else {
-    const total = this.userReviews.reduce((acc, review) => acc + review.ratingStars, 0);
-    this.ratingStars = Math.round((total / this.userReviews.length) * 10) / 10; // Round to 1 decimal
-    this.ratingsCount = this.userReviews.length;
-  }
-  return this.save();
+    if (this.userReviews.length === 0) {
+        this.ratingStars = 0;
+        this.ratingsCount = 0;
+    } else {
+        const total = this.userReviews.reduce((acc, review) => acc + review.ratingStars, 0);
+        this.ratingStars = Math.round((total / this.userReviews.length) * 10) / 10; // Round to 1 decimal
+        this.ratingsCount = this.userReviews.length;
+    }
+    return this.save();
 };
+
+clinicSchema.virtual('treatments', {
+    ref: 'Treatment',
+    localField: '_id',
+    foreignField: 'clinicId'
+});
+
+clinicSchema.set('toObject', { virtuals: true });
+clinicSchema.set('toJSON', { virtuals: true });
 
 export default mongoose.model('Clinic', clinicSchema);

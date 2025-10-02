@@ -1,6 +1,12 @@
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import Appointment from '../models/Appointment.js';
+import { 
+  sendNotificationToDevice, 
+  sendNotificationToMultipleDevices,
+  sendNotificationToTopic,
+  notificationTemplates 
+} from '../utils/fcmService.js';
 
 // Get user notifications
 export const getUserNotifications = async (req, res) => {
@@ -259,7 +265,7 @@ export const getNotificationsByType = async (req, res) => {
 // Create notification (admin function)
 export const createNotification = async (req, res) => {
   try {
-    const { userId, title, message, type, scheduledFor, metadata } = req.body;
+    const { userId, title, message, type, scheduledFor, metadata, sendPush = true } = req.body;
 
     const notification = new Notification({
       userId,
@@ -271,6 +277,33 @@ export const createNotification = async (req, res) => {
     });
 
     await notification.save();
+
+    // Send push notification if requested and user has device token
+    if (sendPush) {
+      try {
+        const user = await User.findById(userId);
+        if (user && user.deviceToken) {
+          const fcmNotification = {
+            title,
+            message,
+            type: type || 'general',
+            notificationId: notification._id.toString(),
+            metadata: metadata || {}
+          };
+
+          const fcmResult = await sendNotificationToDevice(user.deviceToken, fcmNotification);
+          
+          if (!fcmResult.success && fcmResult.shouldRemoveToken) {
+            // Remove invalid device token
+            await User.findByIdAndUpdate(userId, { deviceToken: null });
+            console.log('Removed invalid device token for user:', userId);
+          }
+        }
+      } catch (fcmError) {
+        console.error('Error sending FCM notification:', fcmError);
+        // Don't fail the entire request if FCM fails
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -290,7 +323,7 @@ export const createNotification = async (req, res) => {
 // Create appointment reminder notification
 export const createAppointmentReminder = async (req, res) => {
   try {
-    const { appointmentId, reminderTime } = req.body;
+    const { appointmentId, reminderTime, sendPush = true } = req.body;
     const userId = req.user.userId;
 
     const appointment = await Appointment.findById(appointmentId)
@@ -318,6 +351,35 @@ export const createAppointmentReminder = async (req, res) => {
     });
 
     await notification.save();
+
+    // Send push notification if requested
+    if (sendPush) {
+      try {
+        const user = await User.findById(userId);
+        if (user && user.deviceToken) {
+          const fcmNotification = {
+            title: 'Appointment Reminder',
+            message: `Your ${appointment.treatmentId.name} appointment at ${appointment.clinicId.name} is scheduled for ${appointment.date.toDateString()} at ${appointment.time}`,
+            type: 'appointment_reminder',
+            notificationId: notification._id.toString(),
+            metadata: {
+              appointmentId: appointment._id.toString(),
+              clinicId: appointment.clinicId._id.toString(),
+              treatmentId: appointment.treatmentId._id.toString()
+            }
+          };
+
+          const fcmResult = await sendNotificationToDevice(user.deviceToken, fcmNotification);
+          
+          if (!fcmResult.success && fcmResult.shouldRemoveToken) {
+            await User.findByIdAndUpdate(userId, { deviceToken: null });
+            console.log('Removed invalid device token for user:', userId);
+          }
+        }
+      } catch (fcmError) {
+        console.error('Error sending FCM appointment reminder:', fcmError);
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -348,6 +410,238 @@ export const deleteAllNotifications = async (req, res) => {
 
   } catch (error) {
     console.error('Delete all notifications error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+// Send notification to multiple users (admin function)
+export const sendBulkNotification = async (req, res) => {
+  try {
+    const { userIds, title, message, type, metadata, sendPush = true } = req.body;
+
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'User IDs array is required'
+      });
+    }
+
+    const notifications = [];
+    const deviceTokens = [];
+
+    // Create notifications for each user
+    for (const userId of userIds) {
+      const notification = new Notification({
+        userId,
+        title,
+        message,
+        type: type || 'general',
+        scheduledFor: new Date(),
+        metadata: metadata || {}
+      });
+
+      await notification.save();
+      notifications.push(notification);
+
+      // Collect device tokens for bulk push notification
+      if (sendPush) {
+        const user = await User.findById(userId);
+        if (user && user.deviceToken) {
+          deviceTokens.push(user.deviceToken);
+        }
+      }
+    }
+
+    // Send bulk push notification
+    if (sendPush && deviceTokens.length > 0) {
+      try {
+        const fcmNotification = {
+          title,
+          message,
+          type: type || 'general',
+          metadata: metadata || {}
+        };
+
+        const fcmResult = await sendNotificationToMultipleDevices(deviceTokens, fcmNotification);
+        console.log(`Bulk notification sent: ${fcmResult.successCount} successful, ${fcmResult.failureCount} failed`);
+
+        // Remove invalid tokens
+        if (fcmResult.failedTokens && fcmResult.failedTokens.length > 0) {
+          await User.updateMany(
+            { deviceToken: { $in: fcmResult.failedTokens } },
+            { deviceToken: null }
+          );
+          console.log(`Removed ${fcmResult.failedTokens.length} invalid device tokens`);
+        }
+      } catch (fcmError) {
+        console.error('Error sending bulk FCM notification:', fcmError);
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Notifications sent to ${notifications.length} users`,
+      data: {
+        notifications,
+        totalSent: notifications.length,
+        pushNotificationSent: deviceTokens.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Send bulk notification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+// Send notification to topic (admin function)
+export const sendTopicNotification = async (req, res) => {
+  try {
+    const { topic, title, message, type, metadata, sendPush = true } = req.body;
+
+    if (!topic) {
+      return res.status(400).json({
+        success: false,
+        message: 'Topic is required'
+      });
+    }
+
+    // Send push notification to topic
+    if (sendPush) {
+      try {
+        const fcmNotification = {
+          title,
+          message,
+          type: type || 'general',
+          metadata: metadata || {}
+        };
+
+        const fcmResult = await sendNotificationToTopic(topic, fcmNotification);
+        
+        if (!fcmResult.success) {
+          return res.status(500).json({
+            success: false,
+            message: 'Failed to send topic notification',
+            error: fcmResult.error
+          });
+        }
+      } catch (fcmError) {
+        console.error('Error sending topic FCM notification:', fcmError);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to send topic notification',
+          error: fcmError.message
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Notification sent to topic: ${topic}`,
+      data: {
+        topic,
+        title,
+        message,
+        type: type || 'general'
+      }
+    });
+
+  } catch (error) {
+    console.error('Send topic notification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+// Update user device token
+export const updateDeviceToken = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { deviceToken } = req.body;
+
+    if (!deviceToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'Device token is required'
+      });
+    }
+
+    // Validate device token format (basic validation)
+    if (typeof deviceToken !== 'string' || deviceToken.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid device token format'
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { deviceToken: deviceToken.trim() },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Device token updated successfully',
+      data: {
+        userId: user._id,
+        deviceTokenUpdated: true
+      }
+    });
+
+  } catch (error) {
+    console.error('Update device token error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+// Remove user device token
+export const removeDeviceToken = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { deviceToken: null },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Device token removed successfully',
+      data: {
+        userId: user._id,
+        deviceTokenRemoved: true
+      }
+    });
+
+  } catch (error) {
+    console.error('Remove device token error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'

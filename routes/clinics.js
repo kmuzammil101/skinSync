@@ -18,14 +18,14 @@ const router = express.Router();
 // Public routes (no authentication required)
 router.get('/', getClinics);
 router.get('/location', getClinicsByLocation);
-router.get('/:id', getClinicById);
+router.get('/getClinicById/:id', getClinicById);
 router.get('/:id/reviews', getClinicReviews);
 
 // Protected routes (authentication required)
-router.use(authenticateToken);
+// router.use(authenticateToken);
 
 // Create clinic (admin only - you might want to add role-based auth)
-router.post('/', createClinic);
+router.post('/create-clinic', createClinic);
 
 // Update clinic
 router.put('/:id', updateClinic);

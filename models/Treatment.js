@@ -29,7 +29,24 @@ const treatmentSchema = new mongoose.Schema({
   },
   treatmentType: {
     type: String,
+    enum: [
+      "Skincare & Facial",
+      "Injectables & Fillers",
+      "Laser Treatments",
+      "Sculpting & Contouring",
+      "Rejuvenation"
+    ],
     required: true
+  },
+  subType: {
+    type: String,
+    enum: [
+      "Lip Augmentation",
+      "Cheek Fillers",
+      "Jawline Contouring",
+      "Under-Eye Fillers",
+      "Nose Job"
+    ]
   },
   clinicId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -63,7 +80,7 @@ const treatmentSchema = new mongoose.Schema({
   // ⭐ Average rating
   ratingStars: {
     type: Number,
-    min: 1,
+    min: 0,
     max: 5,
     default: 0
   },

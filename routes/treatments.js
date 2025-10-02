@@ -7,22 +7,33 @@ import {
   getTreatmentById,
   getTreatmentsByType,
   updateTreatment,
-  deleteTreatment
+  deleteTreatment,
+  getTreatmentType,
+  getTreatmentSubtype,
+  getRecommendedTreatments
 } from '../controllers/treatmentController.js';
 
 const router = express.Router();
 
 // All routes require authentication
-router.use(authenticateToken);
+// router.use(authenticateToken);
 
 // Create treatment (admin only - you might want to add role-based auth)
-router.post('/', createTreatment);
+router.post('/create-treatment', createTreatment);
 
 // Get all treatments
-router.get('/', getTreatments);
+router.get('/get-treatments', getTreatments);
+
+//get all types of treatment
+router.get('/get-treatment-type',getTreatmentType)
+
 
 // Get treatment by ID
-router.get('/:id', getTreatmentById);
+router.get('/get-treatment-by-id/:id', getTreatmentById);
+
+//get Treatment subTypes
+router.get('/get-treatment-subType',getTreatmentSubtype)
+
 
 // Get treatments by type
 router.get('/type/:type', getTreatmentsByType);
@@ -32,5 +43,8 @@ router.put('/:id', updateTreatment);
 
 // Delete treatment
 router.delete('/:id', deleteTreatment);
+
+// Get recommended treatments based on user profile
+router.get('/recommended',getRecommendedTreatments);
 
 export default router;

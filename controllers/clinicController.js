@@ -77,7 +77,10 @@ export const getClinicById = async (req, res) => {
     const { id } = req.params;
 
     const clinic = await Clinic.findById(id)
-      .populate('treatments', 'name treatmentType price image description')
+      .populate({
+        path: 'treatments',
+        select: 'name treatmentType price image description' // only necessary fields
+      })
       .populate('userReviews.userId', 'name profileImage');
 
     if (!clinic) {
@@ -101,6 +104,7 @@ export const getClinicById = async (req, res) => {
   }
 };
 
+
 // Create clinic
 export const createClinic = async (req, res) => {
   try {
@@ -114,11 +118,10 @@ export const createClinic = async (req, res) => {
       website,
       businessHours,
       coordinates,
-      socialMedia,
       proofOfExpertise,
       slowDays
     } = req.body;
-
+    console.log(req.body)
     // Validate required fields
     if (!name || !description || !image || !address || !phone || !email) {
       return res.status(400).json({
@@ -137,7 +140,6 @@ export const createClinic = async (req, res) => {
       website,
       businessHours,
       coordinates,
-      socialMedia,
       proofOfExpertise,
       slowDays
     });
