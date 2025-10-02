@@ -1,6 +1,7 @@
 import Clinic from '../models/Clinic.js';
 import Treatment from '../models/Treatment.js';
 import User from '../models/User.js';
+import { addIsSavedToClinics, addIsSavedToClinic } from '../utils/saveUtils.js';
 
 // Get all clinics
 export const getClinics = async (req, res) => {
@@ -15,6 +16,8 @@ export const getClinics = async (req, res) => {
       location,
       isActive = true
     } = req.query;
+
+    const userId = req.user?.userId; // Get userId if authenticated
 
     const query = { isActive };
     
@@ -40,11 +43,16 @@ export const getClinics = async (req, res) => {
     const sortOptions = {};
     sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
-    const clinics = await Clinic.find(query)
+    let clinics = await Clinic.find(query)
       .populate('treatments', 'name treatmentType price image')
       .sort(sortOptions)
       .limit(limit * 1)
       .skip((page - 1) * limit);
+
+    // Add isSaved field if user is authenticated
+    if (userId) {
+      clinics = await addIsSavedToClinics(userId, clinics);
+    }
 
     const total = await Clinic.countDocuments(query);
 
@@ -75,6 +83,7 @@ export const getClinics = async (req, res) => {
 export const getClinicById = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user?.userId; // Get userId if authenticated
 
     const clinic = await Clinic.findById(id)
       .populate({
@@ -90,9 +99,15 @@ export const getClinicById = async (req, res) => {
       });
     }
 
+    // Add isSaved field if user is authenticated
+    let clinicWithSaved = clinic;
+    if (userId) {
+      clinicWithSaved = await addIsSavedToClinic(userId, clinic);
+    }
+
     res.json({
       success: true,
-      data: clinic
+      data: clinicWithSaved
     });
 
   } catch (error) {
@@ -464,6 +479,7 @@ export const getClinicsByLocation = async (req, res) => {
   try {
     const { latitude, longitude, radius = 10 } = req.query; // radius in km
     const { page = 1, limit = 10 } = req.query;
+    const userId = req.user?.userId; // Get userId if authenticated
 
     if (!latitude || !longitude) {
       return res.status(400).json({
@@ -513,7 +529,12 @@ export const getClinicsByLocation = async (req, res) => {
     // Apply pagination
     const startIndex = (page - 1) * limit;
     const endIndex = startIndex + limit;
-    const paginatedClinics = nearbyClinics.slice(startIndex, endIndex);
+    let paginatedClinics = nearbyClinics.slice(startIndex, endIndex);
+
+    // Add isSaved field if user is authenticated
+    if (userId) {
+      paginatedClinics = await addIsSavedToClinics(userId, paginatedClinics);
+    }
 
     res.json({
       success: true,

@@ -22,7 +22,7 @@ router.get('/getClinicById/:id', getClinicById);
 router.get('/:id/reviews', getClinicReviews);
 
 // Protected routes (authentication required)
-// router.use(authenticateToken);
+router.use(authenticateToken);
 
 // Create clinic (admin only - you might want to add role-based auth)
 router.post('/create-clinic', createClinic);

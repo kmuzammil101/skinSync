@@ -16,7 +16,7 @@ import {
 const router = express.Router();
 
 // All routes require authentication
-// router.use(authenticateToken);
+router.use(authenticateToken);
 
 // Create treatment (admin only - you might want to add role-based auth)
 router.post('/create-treatment', createTreatment);

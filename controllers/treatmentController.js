@@ -1,6 +1,7 @@
 import Treatment from '../models/Treatment.js';
 import Clinic from '../models/Clinic.js';
 import { success } from 'zod/v4';
+import { addIsSavedToTreatments, addIsSavedToTreatment, checkSavedTreatments } from '../utils/saveUtils.js';
 
 // Create a new treatment
 export const createTreatment = async (req, res) => {
@@ -77,6 +78,8 @@ export const getTreatments = async (req, res) => {
       treatmentType = "all"
     } = req.query;
 
+    const userId = req.user?.userId; // Get userId if authenticated
+
     const sortOptions = {};
     sortOptions[sortBy] = sortOrder === "desc" ? -1 : 1;
 
@@ -84,7 +87,7 @@ export const getTreatments = async (req, res) => {
 
     if (treatmentType === "all") {
       // 👉 Get 4 treatments per type
-      treatments = await Treatment.aggregate([
+      const pipeline = [
         {
           $match: search
             ? { name: { $regex: search, $options: "i" } }
@@ -121,7 +124,22 @@ export const getTreatments = async (req, res) => {
             treatments: { $slice: ["$treatments", 4] } // only 4 per type
           }
         }
-      ]);
+      ];
+
+      treatments = await Treatment.aggregate(pipeline);
+
+      // Add isSaved field to treatments within each group if user is authenticated
+      if (userId) {
+        for (const group of treatments) {
+          const treatmentIds = group.treatments.map(t => t._id);
+          const savedMap = await checkSavedTreatments(userId, treatmentIds);
+          
+          group.treatments = group.treatments.map(treatment => ({
+            ...treatment,
+            isSaved: savedMap[treatment._id.toString()] || false
+          }));
+        }
+      }
     } else {
       // 👉 Query when filtering by single type
       const query = { treatmentType };
@@ -134,10 +152,15 @@ export const getTreatments = async (req, res) => {
         .select("name image clinicId") // select only required fields
         .populate("clinicId", "name businessHours") // only name + businessHours from clinic
         .sort(sortOptions);
-    }
 
-    res.json({
-      success: true,
+      // Add isSaved field if user is authenticated
+      if (userId) {
+        treatments = await addIsSavedToTreatments(userId, treatments);
+        }
+      }
+
+      res.json({
+        success: true,
       data: {
         treatments
       }
@@ -186,6 +209,7 @@ export const getTreatmentType = async (req, res) => {
 export const getTreatmentById = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user?.userId; // Get userId if authenticated
 
     const treatment = await Treatment.findById(id)
       .populate('clinicId', 'name address image timings');
@@ -197,9 +221,15 @@ export const getTreatmentById = async (req, res) => {
       });
     }
 
+    // Add isSaved field if user is authenticated
+    let treatmentWithSaved = treatment;
+    if (userId) {
+      treatmentWithSaved = await addIsSavedToTreatment(userId, treatment);
+    }
+
     res.json({
       success: true,
-      data: treatment
+      data: treatmentWithSaved
     });
 
   } catch (error) {
@@ -251,6 +281,8 @@ export const getTreatmentsByType = async (req, res) => {
       search = '',        
       subType             
     } = req.query;
+
+    const userId = req.user?.userId; // Get userId if authenticated
 
     const sortOptions = {};
     sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
@@ -309,7 +341,12 @@ export const getTreatmentsByType = async (req, res) => {
     );
 
     // Execute treatments
-    const treatments = await Treatment.aggregate(pipeline);
+    let treatments = await Treatment.aggregate(pipeline);
+
+    // Add isSaved field if user is authenticated
+    if (userId) {
+      treatments = await addIsSavedToTreatments(userId, treatments);
+    }
 
     // Count total
     const total = await Treatment.aggregate([
@@ -616,7 +653,7 @@ export const getRecommendedTreatments = async (req, res) => {
       treatments = [...treatments, ...uniquePopularTreatments];
     }
 
-    // Add recommendation reason for each treatment
+    // Add recommendation reason and isSaved field for each treatment
     const treatmentsWithReasons = treatments.map(treatment => {
       let reason = 'Popular treatment';
       
@@ -632,10 +669,13 @@ export const getRecommendedTreatments = async (req, res) => {
       };
     });
 
+    // Add isSaved field to all treatments
+    const treatmentsWithSaved = await addIsSavedToTreatments(userId, treatmentsWithReasons);
+
     res.json({
       success: true,
       data: {
-        treatments: treatmentsWithReasons,
+        treatments: treatmentsWithSaved,
         userProfile: {
           skintype: userSkinData.skintype,
           skinConcerns: userSkinData.skinConcerns,
@@ -645,7 +685,7 @@ export const getRecommendedTreatments = async (req, res) => {
           medication: userSkinData.medication
         },
         recommendationCriteria: recommendedTypesArray,
-        totalRecommendations: treatmentsWithReasons.length
+        totalRecommendations: treatmentsWithSaved.length
       }
     });
 
