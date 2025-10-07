@@ -11,6 +11,7 @@ import treatmentRoutes from './routes/treatments.js';
 import appointmentRoutes from './routes/appointments.js';
 import clinicRoutes from './routes/clinics.js';
 import saveRoutes from "./routes/save.js"
+import clinicAuthRoutes from './routes/clinicAuth.js';
 import path from 'path';
 
 dotenv.config();
@@ -44,6 +45,7 @@ app.use('/api/treatments', treatmentRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/clinics', clinicRoutes);
 app.use('/api/save',saveRoutes)
+app.use('/api/clinic-auth', clinicAuthRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

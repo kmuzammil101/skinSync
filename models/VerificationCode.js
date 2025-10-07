@@ -14,7 +14,7 @@ const verificationCodeSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['email_verification', 'password_reset'],
+    enum: ['email_verification', 'password_reset','clinic_email_verification'],
     default: 'email_verification'
   },
   expiresAt: {
