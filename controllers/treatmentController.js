@@ -71,99 +71,92 @@ export const createTreatment = async (req, res) => {
 // Get all treatments
 export const getTreatments = async (req, res) => {
   try {
-    const {
+    let {
       search = "",
       sortBy = "createdAt",
       sortOrder = "desc",
       treatmentType = "all"
     } = req.query;
 
-    const userId = req.user?.userId; // Get userId if authenticated
+    // ✅ Always make search a safe string
+    search = String(search || "").trim();
+    if (search === "null" || search === "undefined") {
+      search = "";
+    }
+
+    const userId = req.user?.userId;
 
     const sortOptions = {};
     sortOptions[sortBy] = sortOrder === "desc" ? -1 : 1;
 
     let treatments = [];
 
-    if (treatmentType === "all") {
-      // 👉 Get 4 treatments per type
-      const pipeline = [
-        {
-          $match: search
-            ? { name: { $regex: search, $options: "i" } }
-            : {}
-        },
-        { $sort: sortOptions },
-        {
-          $lookup: {
-            from: "clinics",
-            localField: "clinicId",
-            foreignField: "_id",
-            as: "clinic"
-          }
-        },
-        { $unwind: "$clinic" },
-        {
-          $group: {
-            _id: "$treatmentType",
-            treatments: {
-              $push: {
-                _id: "$_id",
-                name: "$name",
-                image: "$image",
-                clinicName: "$clinic.name",
-                businessHours: "$clinic.businessHours"
-              }
+    // ✅ Single pipeline handles both "all" and specific type
+    const matchStage = {};
+    if (treatmentType !== "all") {
+      matchStage.treatmentType = treatmentType;
+    }
+    if (search !== "") {
+      matchStage.name = { $regex: search, $options: "i" };
+    }
+
+    const pipeline = [
+      { $match: matchStage },
+      { $sort: sortOptions },
+      {
+        $lookup: {
+          from: "clinics",
+          localField: "clinicId",
+          foreignField: "_id",
+          as: "clinic"
+        }
+      },
+      { $unwind: "$clinic" },
+      {
+        $group: {
+          _id: { $ifNull: ["$treatmentType", "Uncategorized"] },
+          treatments: {
+            $push: {
+              _id: "$_id",
+              name: "$name",
+              image: "$image",
+              clinicName: "$clinic.name",
+              businessHours: "$clinic.businessHours"
             }
           }
-        },
-        {
-          $project: {
-            _id: 0,
-            treatmentType: "$_id",
-            treatments: { $slice: ["$treatments", 4] } // only 4 per type
-          }
         }
-      ];
-
-      treatments = await Treatment.aggregate(pipeline);
-
-      // Add isSaved field to treatments within each group if user is authenticated
-      if (userId) {
-        for (const group of treatments) {
-          const treatmentIds = group.treatments.map(t => t._id);
-          const savedMap = await checkSavedTreatments(userId, treatmentIds);
-          
-          group.treatments = group.treatments.map(treatment => ({
-            ...treatment,
-            isSaved: savedMap[treatment._id.toString()] || false
-          }));
+      },
+      {
+        $project: {
+          _id: 0,
+          treatmentType: "$_id",
+          // 👉 for "all" keep slice 4, for single type return full list
+          treatments:
+            treatmentType === "all"
+              ? { $slice: ["$treatments", 4] }
+              : "$treatments"
         }
       }
-    } else {
-      // 👉 Query when filtering by single type
-      const query = { treatmentType };
+    ];
 
-      if (search) {
-        query.name = { $regex: search, $options: "i" };
+    treatments = await Treatment.aggregate(pipeline);
+
+    // Add isSaved if logged in
+    if (userId) {
+      for (const group of treatments) {
+        const treatmentIds = group.treatments.map(t => t._id);
+        const savedMap = await checkSavedTreatments(userId, treatmentIds);
+
+        group.treatments = group.treatments.map(treatment => ({
+          ...treatment,
+          isSaved: savedMap[treatment._id.toString()] || false
+        }));
       }
+    }
 
-      treatments = await Treatment.find(query)
-        .select("name image clinicId") // select only required fields
-        .populate("clinicId", "name businessHours") // only name + businessHours from clinic
-        .sort(sortOptions);
-
-      // Add isSaved field if user is authenticated
-      if (userId) {
-        treatments = await addIsSavedToTreatments(userId, treatments);
-        }
-      }
-
-      res.json({
-        success: true,
-      data: {
-        treatments
-      }
+    res.json({
+      success: true,
+      data: { treatments }
     });
   } catch (error) {
     console.error("Get treatments error:", error);
@@ -173,10 +166,6 @@ export const getTreatments = async (req, res) => {
     });
   }
 };
-
-
-
-
 
 
 export const getTreatmentType = async (req, res) => {
@@ -273,16 +262,22 @@ export const getTreatmentSubtype = async (req, res) => {
 export const getTreatmentsByType = async (req, res) => {
   try {
     const { type } = req.params;
-    const { 
-      page = 1, 
-      limit = 10, 
-      sortBy = 'createdAt', 
+    let {
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
       sortOrder = 'desc',
-      search = '',        
-      subType             
+      search = '',
+      subType
     } = req.query;
 
-    const userId = req.user?.userId; // Get userId if authenticated
+    const userId = req.user?.userId;
+
+    // ✅ Normalize search param
+    search = String(search || '').trim();
+    if (search === 'null' || search === 'undefined') {
+      search = '';
+    }
 
     const sortOptions = {};
     sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
@@ -293,7 +288,7 @@ export const getTreatmentsByType = async (req, res) => {
       matchStage.subType = subType;
     }
 
-    // Pipeline
+    // Base pipeline
     const pipeline = [
       { $match: matchStage },
       {
@@ -307,8 +302,8 @@ export const getTreatmentsByType = async (req, res) => {
       { $unwind: '$clinic' }
     ];
 
-    // If search provided
-    if (search) {
+    // 👉 Apply search only if non-empty
+    if (search !== '') {
       pipeline.push({
         $match: {
           $or: [
@@ -336,7 +331,7 @@ export const getTreatmentsByType = async (req, res) => {
 
     // Pagination
     pipeline.push(
-      { $skip: (page - 1) * parseInt(limit) },
+      { $skip: (parseInt(page) - 1) * parseInt(limit) },
       { $limit: parseInt(limit) }
     );
 
@@ -348,8 +343,8 @@ export const getTreatmentsByType = async (req, res) => {
       treatments = await addIsSavedToTreatments(userId, treatments);
     }
 
-    // Count total
-    const total = await Treatment.aggregate([
+    // Count total (separate pipeline, same search fix)
+    const totalPipeline = [
       { $match: matchStage },
       {
         $lookup: {
@@ -359,18 +354,23 @@ export const getTreatmentsByType = async (req, res) => {
           as: 'clinic'
         }
       },
-      { $unwind: '$clinic' },
-      ...(search ? [{
+      { $unwind: '$clinic' }
+    ];
+
+    if (search !== '') {
+      totalPipeline.push({
         $match: {
           $or: [
             { name: { $regex: search, $options: 'i' } },
             { 'clinic.name': { $regex: search, $options: 'i' } }
           ]
         }
-      }] : []),
-      { $count: 'total' }
-    ]);
+      });
+    }
 
+    totalPipeline.push({ $count: 'total' });
+
+    const total = await Treatment.aggregate(totalPipeline);
     const totalCount = total.length > 0 ? total[0].total : 0;
 
     res.json({
@@ -396,6 +396,8 @@ export const getTreatmentsByType = async (req, res) => {
     });
   }
 };
+
+
 
 
 // Update treatment
@@ -470,12 +472,14 @@ export const deleteTreatment = async (req, res) => {
 export const getRecommendedTreatments = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { limit = 10 } = req.query;
+    const { page = 1, limit = 10 } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
     // Import User model
     const User = (await import('../models/User.js')).default;
 
-    // Get user profile data
+    // Get user profile
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({
@@ -494,16 +498,16 @@ export const getRecommendedTreatments = async (req, res) => {
       medication: user.medication || ''
     };
 
-    // Define treatment recommendations based on skin data
+    // Recommendation rules (same as your code)
     const recommendationRules = {
-      // Skin Type based recommendations
+      // Skin Type
       'Oily Skin': ['Deep Cleansing', 'Oil Control', 'Pore Minimizing', 'Acne Treatment'],
       'Dry Skin': ['Hydrating', 'Moisturizing', 'Anti-Aging', 'Skin Repair'],
       'Combination Skin': ['Balancing', 'T-Zone Treatment', 'Gentle Cleansing'],
       'Sensitive Skin': ['Gentle Treatment', 'Soothing', 'Anti-Inflammatory', 'Hypoallergenic'],
       'Normal Skin': ['Maintenance', 'Preventive Care', 'General Wellness'],
 
-      // Skin Concerns based recommendations
+      // Skin Concerns
       'Acne Or Breakouts': ['Acne Treatment', 'Deep Cleansing', 'Oil Control', 'Anti-Inflammatory'],
       'Fine Lines Or Wrinkles': ['Anti-Aging', 'Collagen Boost', 'Skin Tightening', 'Wrinkle Reduction'],
       'Dark Spots Or Pigmentation': ['Pigmentation Treatment', 'Brightening', 'Skin Lightening'],
@@ -512,21 +516,21 @@ export const getRecommendedTreatments = async (req, res) => {
       'Dullness Or Uneven Tone': ['Brightening', 'Exfoliation', 'Skin Renewal', 'Tone Correcting'],
       'None Of Them': ['Maintenance', 'Preventive Care', 'General Wellness'],
 
-      // Skin Conditions based recommendations
+      // Skin Conditions
       'Acne': ['Acne Treatment', 'Deep Cleansing', 'Oil Control', 'Anti-Inflammatory'],
       'Eczema': ['Gentle Treatment', 'Soothing', 'Anti-Inflammatory', 'Skin Repair'],
       'Psoriasis': ['Gentle Treatment', 'Soothing', 'Anti-Inflammatory', 'Skin Repair'],
       'Rosacea': ['Gentle Treatment', 'Soothing', 'Anti-Inflammatory', 'Calming'],
       'None Of The Above': ['General Wellness', 'Maintenance', 'Preventive Care'],
 
-      // Skin Goals based recommendations
+      // Skin Goals
       'Clearer Skin (Reduce Acne Or Breakouts)': ['Deep Cleansing', 'Acne Treatment', 'Oil Control', 'Anti-Inflammatory'],
       'Brighter Skin (Reduce Dullness Or Dark Spots)': ['Brightening', 'Pigmentation Treatment', 'Skin Lightening', 'Exfoliation'],
       'Firmer Skin (Reduce Fine Lines Or Wrinkles)': ['Anti-Aging', 'Collagen Boost', 'Skin Tightening', 'Wrinkle Reduction'],
       'Hydrated Skin (Reduce Dryness Or Flakiness)': ['Hydrating', 'Moisturizing', 'Skin Repair', 'Nourishing'],
       'Even Skin Tone (Reduce Redness Or Pigmentation)': ['Tone Correcting', 'Brightening', 'Pigmentation Treatment', 'Calming'],
 
-      // Lifestyle based recommendations
+      // Lifestyle
       'Do You Spend A lot Of Time Outdoors?': ['Sun Protection', 'Anti-Aging', 'Skin Repair', 'UV Protection'],
       'Do You Currently Follow A Skincare Regimen?': ['Maintenance', 'Enhancement', 'Advanced Treatment'],
       'Do You Eat A Balanced Diet With Plenty Of Water?': ['General Wellness', 'Maintenance', 'Preventive Care'],
@@ -537,44 +541,27 @@ export const getRecommendedTreatments = async (req, res) => {
     // Collect recommended treatment types
     const recommendedTypes = new Set();
 
-    // Add recommendations based on skin type
     userSkinData.skintype.forEach(skinType => {
-      const types = recommendationRules[skinType] || [];
-      types.forEach(type => recommendedTypes.add(type));
+      (recommendationRules[skinType] || []).forEach(type => recommendedTypes.add(type));
     });
-
-    // Add recommendations based on skin concerns
     userSkinData.skinConcerns.forEach(concern => {
-      const types = recommendationRules[concern] || [];
-      types.forEach(type => recommendedTypes.add(type));
+      (recommendationRules[concern] || []).forEach(type => recommendedTypes.add(type));
     });
-
-    // Add recommendations based on skin conditions
     userSkinData.skinCondition.forEach(condition => {
-      const types = recommendationRules[condition] || [];
-      types.forEach(type => recommendedTypes.add(type));
+      (recommendationRules[condition] || []).forEach(type => recommendedTypes.add(type));
     });
-
-    // Add recommendations based on skin goals
     userSkinData.skinGoals.forEach(goal => {
-      const types = recommendationRules[goal] || [];
-      types.forEach(type => recommendedTypes.add(type));
+      (recommendationRules[goal] || []).forEach(type => recommendedTypes.add(type));
     });
-
-    // Add recommendations based on lifestyle factors
     userSkinData.lifestyle.forEach(lifestyle => {
-      const types = recommendationRules[lifestyle] || [];
-      types.forEach(type => recommendedTypes.add(type));
+      (recommendationRules[lifestyle] || []).forEach(type => recommendedTypes.add(type));
     });
 
-    // Convert Set to Array
     const recommendedTypesArray = Array.from(recommendedTypes);
 
-    // If no specific recommendations, get popular treatments
     let treatments = [];
-    
+
     if (recommendedTypesArray.length > 0) {
-      // Get treatments that match recommended types
       treatments = await Treatment.aggregate([
         {
           $match: {
@@ -610,11 +597,12 @@ export const getRecommendedTreatments = async (req, res) => {
           }
         },
         { $sort: { ratingStars: -1, ratingsCount: -1 } },
+        { $skip: skip },   // 👈 pagination
         { $limit: parseInt(limit) }
       ]);
     }
 
-    // If we don't have enough recommendations, fill with popular treatments
+    // If not enough, fill with popular
     if (treatments.length < parseInt(limit)) {
       const remainingLimit = parseInt(limit) - treatments.length;
       const popularTreatments = await Treatment.aggregate([
@@ -644,46 +632,39 @@ export const getRecommendedTreatments = async (req, res) => {
           }
         },
         { $sort: { ratingStars: -1, ratingsCount: -1 } },
+        { $skip: skip },   // 👈 also apply pagination here
         { $limit: remainingLimit }
       ]);
 
-      // Combine recommended and popular treatments, avoiding duplicates
       const existingIds = new Set(treatments.map(t => t._id.toString()));
       const uniquePopularTreatments = popularTreatments.filter(t => !existingIds.has(t._id.toString()));
       treatments = [...treatments, ...uniquePopularTreatments];
     }
 
-    // Add recommendation reason and isSaved field for each treatment
+    // Add recommendation reason
     const treatmentsWithReasons = treatments.map(treatment => {
       let reason = 'Popular treatment';
-      
       if (recommendedTypesArray.includes(treatment.treatmentType)) {
         reason = `Recommended for your ${treatment.treatmentType.toLowerCase()} needs`;
       } else if (recommendedTypesArray.includes(treatment.subType)) {
         reason = `Recommended for your ${treatment.subType.toLowerCase()} concerns`;
       }
-
-      return {
-        ...treatment,
-        recommendationReason: reason
-      };
+      return { ...treatment, recommendationReason: reason };
     });
 
-    // Add isSaved field to all treatments
+    // Add isSaved field
     const treatmentsWithSaved = await addIsSavedToTreatments(userId, treatmentsWithReasons);
 
     res.json({
       success: true,
       data: {
         treatments: treatmentsWithSaved,
-        userProfile: {
-          skintype: userSkinData.skintype,
-          skinConcerns: userSkinData.skinConcerns,
-          skinCondition: userSkinData.skinCondition,
-          skinGoals: userSkinData.skinGoals,
-          lifestyle: userSkinData.lifestyle,
-          medication: userSkinData.medication
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          count: treatmentsWithSaved.length
         },
+        userProfile: userSkinData,
         recommendationCriteria: recommendedTypesArray,
         totalRecommendations: treatmentsWithSaved.length
       }

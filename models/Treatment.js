@@ -30,6 +30,7 @@ const treatmentSchema = new mongoose.Schema({
   treatmentType: {
     type: String,
     enum: [
+      "all",
       "Skincare & Facial",
       "Injectables & Fillers",
       "Laser Treatments",
