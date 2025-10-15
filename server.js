@@ -7,6 +7,7 @@ import Stripe from 'stripe';
 import Appointment from './models/Appointment.js';
 import Clinic from './models/Clinic.js';
 import ClinicTransaction from './models/ClinicTransaction.js';
+import UserTransaction from './models/UserTransaction.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/user.js';
 import notificationRoutes from './routes/notifications.js';
@@ -102,17 +103,75 @@ app.post(
             });
           }
 
-          // Record hold (funds awaiting admin release)
-          await ClinicTransaction.create({
-            clinicId: appt.clinicId,
-            type: 'hold',
-            amount: amountReceived,
-            currency: appt.currency || 'usd',
-            description: `Funds on hold for Appointment ${appt._id}`,
-            appointmentId: appt._id,
-            paymentIntentId: pi.id,
-            visible: false,
-          });
+          // Record a user-facing transaction (platform charged the user)
+          try {
+            const existingUserTxn = await UserTransaction.findOne({ paymentIntentId: pi.id });
+            if (!existingUserTxn) {
+              // Try to populate clinic and treatment names for a friendly description
+              let clinicName = 'Clinic';
+              let treatmentName = 'Treatment';
+              try {
+              const clinic = await Clinic.findById(appt.clinicId).select('name');
+              if (clinic && clinic.name) clinicName = clinic.name;
+              } catch (e) {
+              // ignore lookup failure
+              }
+              try {
+              const Treatment = (await import('./models/Treatment.js')).default;
+              const treatment = await Treatment.findById(appt.treatmentId).select('name');
+              if (treatment && treatment.name) treatmentName = treatment.name;
+              } catch (e) {
+              // ignore lookup failure
+              }
+
+              // Convert amount from cents to actual (e.g., $)
+              const actualAmount = (amountReceived / 100).toFixed(2);
+
+              await UserTransaction.create({
+              userId: appt.userId,
+              type: 'platform_charge',
+              amount: actualAmount,
+              currency: appt.currency || 'usd',
+              description: `Charged $${actualAmount} for ${treatmentName} at ${clinicName} (Appointment ${appt._id})`,
+              appointmentId: appt._id,
+              paymentIntentId: pi.id,
+              // mark hold so user's wallet doesn't show this as available balance
+              visible: false
+              });
+            }
+          } catch (e) {
+            console.error('Failed to create UserTransaction for payment_intent.succeeded', e.message);
+          }
+
+          // Record hold (funds awaiting admin release) - idempotent and update clinic heldBalance
+          try {
+            const existingHold = await ClinicTransaction.findOne({ paymentIntentId: pi.id, type: 'hold' });
+            if (!existingHold) {
+              const holdTxn = await ClinicTransaction.create({
+                clinicId: appt.clinicId,
+                type: 'hold',
+                amount: amountReceived,
+                currency: appt.currency || 'usd',
+                description: `Funds on hold for Appointment ${appt._id}`,
+                appointmentId: appt._id,
+                paymentIntentId: pi.id,
+                visible: false,
+              });
+
+              // Increment clinic heldBalance by amountReceived (cents)
+              try {
+                const clinic = await Clinic.findById(appt.clinicId);
+                if (clinic) {
+                  clinic.heldBalance = (clinic.heldBalance || 0) + amountReceived;
+                  await clinic.save();
+                }
+              } catch (e) {
+                console.error('Failed to update clinic heldBalance for hold txn', e.message);
+              }
+            }
+          } catch (e) {
+            console.error('Failed to create hold ClinicTransaction', e.message);
+          }
 
           // 🧩 ADDED: Optional log for debugging successful webhook
           console.log(`✅ Payment succeeded, Appointment ${appt._id} confirmed.`);
@@ -286,6 +345,8 @@ app.use('/api/save', saveRoutes)
 //for clinics
 app.use('/api/clinics', clinicRoutes);
 app.use('/api/clinic-auth', clinicAuthRoutes);
+
+//for admins
 app.use('/api/admin-auth', adminAuthRoutes);
 
 // Health check endpoint

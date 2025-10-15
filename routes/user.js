@@ -11,6 +11,7 @@ import {
   updateNotificationPreferences,
   deleteUserAccount
 } from '../controllers/userController.js';
+import { getUserWallet } from '../controllers/userWalletController.js';
 
 const router = express.Router();
 
@@ -31,5 +32,8 @@ router.put('/notifications',
 );
 
 router.delete('/account', deleteUserAccount);
+
+// Wallet
+router.get('/wallet', getUserWallet);
 
 export default router;

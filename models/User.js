@@ -128,6 +128,16 @@ const userSchema = new mongoose.Schema({
   type: [String],
   default: []
 }
+  ,
+  // In-app wallet fields (amounts stored in cents)
+  walletBalance: {
+    type: Number,
+    default: 0 // cents
+  },
+  heldBalance: {
+    type: Number,
+    default: 0 // cents held by admin for this user
+  }
 }, {
   timestamps: true
 });
