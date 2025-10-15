@@ -119,6 +119,7 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  // (Admin users are stored in a separate Admin collection)
   loyaltyPoints: {
     type: Number,
     default: 0

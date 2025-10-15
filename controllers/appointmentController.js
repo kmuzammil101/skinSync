@@ -2,6 +2,11 @@ import Appointment from '../models/Appointment.js';
 import Treatment from '../models/Treatment.js';
 import Clinic from '../models/Clinic.js';
 import User from '../models/User.js';
+import Stripe from 'stripe';
+import dotenv from 'dotenv';
+
+dotenv.config();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-08-16' });
 
 // Create a new appointment
 export const createAppointment = async (req, res) => {
@@ -60,27 +65,36 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    const appointment = new Appointment({
+  // create appointment record but keep payment info until payment confirmed
+  // Ensure amount is in cents for Stripe. Configure PRICE_IN_CENTS=true if treatment.price is already in cents.
+  const amount = process.env.PRICE_IN_CENTS === 'true' ? treatment.price : Math.round((treatment.price || 0) * 100);
+    const appt = new Appointment({
       userId,
       clinicId,
       treatmentId,
       date: appointmentDate,
       time,
-      status: 'pending'
+      status: 'pending',
+      amount: amount,
+      currency: 'usd',
+      paymentStatus: 'unpaid'
+    });
+    await appt.save();
+    // Create PaymentIntent on platform only (no connected account onboarding)
+    // Create PaymentIntent on platform only (no transfer to connected account)
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amount,
+      currency: appt.currency || 'usd',
+      metadata: { appointmentId: appt._id.toString(), userId },
+      automatic_payment_methods: { enabled: true }
     });
 
-    await appointment.save();
+    appt.stripePaymentIntentId = paymentIntent.id;
+    appt.paymentStatus = 'processing';
+    await appt.save();
 
-    // Populate the appointment data
-    const populatedAppointment = await Appointment.findById(appointment._id)
-      .populate('clinicId', 'name address image')
-      .populate('treatmentId', 'name price image');
-
-    res.status(201).json({
-      success: true,
-      message: 'Appointment created successfully',
-      data: populatedAppointment
-    });
+    // Return client secret so frontend can confirm payment
+    res.status(201).json({ success: true, message: 'Appointment created, proceed to payment', data: { appointment: appt, clientSecret: paymentIntent.client_secret, appointmentId: appt._id } });
 
   } catch (error) {
     console.error('Create appointment error:', error);
@@ -90,6 +104,91 @@ export const createAppointment = async (req, res) => {
     });
   }
 };
+
+
+export const getMonthSlots = async (req, res) => {
+  try {
+    const { clinicId, year, month } = req.params; // month: 1-12
+    const { slots } = req.query; // optional comma separated times e.g. '09:00,10:00'
+
+    // Validate inputs
+    const y = parseInt(year, 10);
+    const m = parseInt(month, 10);
+    if (!clinicId || isNaN(y) || isNaN(m) || m < 1 || m > 12) {
+      return res.status(400).json({ success: false, message: 'Invalid clinicId/year/month' });
+    }
+
+    // Check clinic exists
+    const clinic = await Clinic.findById(clinicId);
+    if (!clinic) {
+      return res.status(404).json({ success: false, message: 'Clinic not found' });
+    }
+
+    // Determine total days in month
+    const daysInMonth = new Date(y, m, 0).getDate();
+
+    // Prepare default slot list
+    let slotList = [];
+    if (slots) {
+      slotList = slots.split(',').map(s => s.trim()).filter(Boolean);
+    } else {
+      for (let h = 9; h <= 17; h++) {
+        const hh = h.toString().padStart(2, '0');
+        slotList.push(`${hh}:00`);
+      }
+    }
+
+    // Fetch all appointments for this month
+    const startDate = new Date(y, m - 1, 1);
+    const endDate = new Date(y, m - 1, daysInMonth, 23, 59, 59, 999);
+
+    const appts = await Appointment.find({
+      clinicId,
+      date: { $gte: startDate, $lte: endDate },
+      status: { $in: ['pending', 'confirmed'] }
+    });
+
+    // Group appointments by local date (YYYY-MM-DD)
+    const apptMap = {};
+    appts.forEach(a => {
+      const d = new Date(a.date);
+      const key = d.toLocaleDateString('en-CA'); // ✅ keeps it local (no UTC shift)
+      apptMap[key] = apptMap[key] || new Set();
+      apptMap[key].add(a.time);
+    });
+
+    // Build result array for each day
+    const result = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateObj = new Date(y, m - 1, day);
+      const dateKey = dateObj.toLocaleDateString('en-CA'); // ✅ local-safe
+      const bookedSet = apptMap[dateKey] || new Set();
+
+      const slotsForDay = slotList.map(t => ({
+        time: t,
+        alreadyBooked: bookedSet.has(t)
+      }));
+
+      result.push({ date: dateKey, slots: slotsForDay });
+    }
+
+    // ✅ Sort by date ascending (1st day → last day)
+    result.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Send response
+    res.json({
+      success: true,
+      data: { year: y, month: m, days: daysInMonth, result }
+    });
+
+  } catch (err) {
+    console.error('Get month slots error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+
 
 // Get all appointments for a user
 export const getAppointments = async (req, res) => {

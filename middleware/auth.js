@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 
 export const authenticateToken = async (req, res, next) => {
   try {
@@ -49,5 +50,24 @@ export const authenticateToken = async (req, res, next) => {
       success: false,
       message: 'Internal server error'
     });
+  }
+};
+
+export const authorizeAdmin = (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    // Lookup Admin collection for this userId
+    Admin.findOne({ userId: req.user.userId }).then(admin => {
+      if (!admin) return res.status(403).json({ success: false, message: 'Admin privileges required' });
+      next();
+    }).catch(err => {
+      console.error('Admin lookup error', err);
+      res.status(500).json({ success: false, message: 'Internal server error' });
+    });
+  } catch (err) {
+    console.error('Admin authorization error', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };

@@ -10,68 +10,94 @@ const generateToken = (clinicId) => {
   });
 };
 
-// Send OTP for clinic registration/login
+
 export const sendClinicOTP = async (req, res) => {
   try {
     const { email } = req.body;
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = 123456; // for testing
+    const expiresIn = 10 * 60 * 1000; // 10 minutes
+
+    // Upsert verification code
     await VerificationCode.findOneAndUpdate(
       { email, type: 'clinic_email_verification' },
       {
         email,
-        code: otp,
+        code: otp.toString(), // ✅ always string for consistency
         type: 'clinic_email_verification',
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        expiresAt: new Date(Date.now() + expiresIn),
         attempts: 0,
         isUsed: false
       },
       { upsert: true, new: true }
     );
-    await sendVerificationEmail(email, otp);
-    res.json({ success: true, message: 'OTP sent to clinic email', data: { email, expiresIn: 600 } });
+
+    // Check if clinic exists
+    const existingClinic = await Clinic.findOne({ email });
+
+    res.json({
+      success: true,
+      message: 'OTP sent to clinic email',
+      data: {
+        email,
+        isNewUser: !existingClinic,
+        expiresIn: expiresIn / 1000
+      }
+    });
   } catch (error) {
+    console.error('Error sending clinic OTP:', error);
     res.status(500).json({ success: false, message: 'Failed to send OTP.' });
   }
 };
 
-// Verify OTP and create clinic account
+
+
+
+
 export const verifyClinicOTP = async (req, res) => {
   try {
-    const { email, code, name, imageUrl, address, phone } = req.body;
+    const { email, code } = req.body;
+
+    if (!email || !code) {
+      return res.status(400).json({ success: false, message: 'Email and OTP code are required.' });
+    }
+
+    // Check OTP record
     const verificationRecord = await VerificationCode.findOne({
       email,
-      code,
+      code: code.toString(), // ensure same type
       type: 'clinic_email_verification',
-      expiresAt: { $gt: new Date() }
+      expiresAt: { $gt: new Date() },
+      isUsed: false
     });
+
     if (!verificationRecord) {
       return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
     }
+
+    // Find or create clinic
     let clinic = await Clinic.findOne({ email });
+    let isNewUser = false;
     if (!clinic) {
-      clinic = new Clinic({ name, email, image: imageUrl, address, phone });
-      await clinic.save();
+      clinic = await Clinic.create({ email });
+      isNewUser = true;
     }
+
+    // Mark OTP used
     verificationRecord.isUsed = true;
     await verificationRecord.save();
+
+    // Generate token
     const token = generateToken(clinic._id);
-    res.json({ success: true, message: 'Clinic verified and account created', data: { token, clinic } });
+
+    res.json({
+      success: true,
+      message: 'Clinic verified successfully',
+      data: { token, clinic, isNewUser }
+    });
   } catch (error) {
+    console.error('Error verifying clinic OTP:', error);
     res.status(500).json({ success: false, message: 'Failed to verify OTP.' });
   }
 };
 
-// Clinic login (email only)
-export const clinicLogin = async (req, res) => {
-  try {
-    const { email } = req.body;
-    const clinic = await Clinic.findOne({ email });
-    if (!clinic) {
-      return res.status(404).json({ success: false, message: 'Clinic not found' });
-    }
-    const token = generateToken(clinic._id);
-    res.json({ success: true, message: 'Clinic login successful', data: { token, clinic } });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'Clinic login failed.' });
-  }
-};
+

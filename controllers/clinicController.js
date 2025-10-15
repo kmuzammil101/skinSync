@@ -2,15 +2,21 @@ import Clinic from '../models/Clinic.js';
 import Treatment from '../models/Treatment.js';
 import User from '../models/User.js';
 import { addIsSavedToClinics, addIsSavedToClinic } from '../utils/saveUtils.js';
+import Stripe from 'stripe';
+import dotenv from 'dotenv';
+import ClinicTransaction from '../models/ClinicTransaction.js';
+
+dotenv.config();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-08-16' });
 
 // Get all clinics
 export const getClinics = async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 10, 
-      search, 
-      sortBy = 'createdAt', 
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      sortBy = 'createdAt',
       sortOrder = 'desc',
       minRating,
       location,
@@ -20,7 +26,7 @@ export const getClinics = async (req, res) => {
     const userId = req.user?.userId; // Get userId if authenticated
 
     const query = { isActive };
-    
+
     // Add search functionality
     if (search) {
       query.$or = [
@@ -414,6 +420,203 @@ export const deleteReview = async (req, res) => {
   }
 };
 
+// ---------------------------------
+// Stripe Connect: Onboard clinic (Express account) and create account link
+// ---------------------------------
+export const onboardClinic = async (req, res) => {
+  try {
+    const { clinicId, name, email, country = 'US' } = req.body;
+    if (!clinicId || !name || !email) return res.status(400).json({ success: false, message: 'clinicId, name and email are required' });
+
+    const clinic = await Clinic.findById(clinicId);
+    if (!clinic) return res.status(404).json({ success: false, message: 'Clinic not found' });
+
+    // Create connected account
+    const account = await stripe.accounts.create({
+      type: 'express',
+      country,
+      email,
+      business_type: 'company',
+      business_profile: { name }
+    });
+
+    clinic.stripeAccountId = account.id;
+    clinic.accountType = 'express';
+    await clinic.save();
+
+    const accountLink = await stripe.accountLinks.create({
+      account: account.id,
+      refresh_url: process.env.STRIPE_ONBOARD_REFRESH_URL || 'https://yourapp.example.com/reauth',
+      return_url: process.env.STRIPE_ONBOARD_RETURN_URL || 'https://yourapp.example.com/onboard/success',
+      type: 'account_onboarding'
+    });
+
+    res.json({ success: true, url: accountLink.url, clinic });
+  } catch (err) {
+    console.error('Onboard clinic error', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------------
+// Get clinic wallet (balance + transactions)
+// ---------------------------------
+export const getClinicWallet = async (req, res) => {
+  try {
+    const { id } = req.params; // clinic id
+    const clinic = await Clinic.findById(id);
+    if (!clinic) return res.status(404).json({ success: false, message: 'Clinic not found' });
+
+    // fetch transactions from our mirror collection
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (page - 1) * limit;
+
+    const transactions = await ClinicTransaction.find({ clinicId: clinic._id })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await ClinicTransaction.countDocuments({ clinicId: clinic._id });
+
+    // Optionally, fetch stripe balance for connected account to display real balance (if clinic has connected account)
+    let stripeBalance = null;
+    if (clinic.stripeAccountId) {
+      try {
+        stripeBalance = await stripe.balance.retrieve({}, { stripeAccount: clinic.stripeAccountId });
+      } catch (e) {
+        console.warn('Could not retrieve stripe balance for clinic', e.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        clinicId: clinic._id,
+        walletBalance: clinic.walletBalance || 0,
+        stripeBalance,
+        transactions,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(total / limit),
+          totalTransactions: total
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Get clinic wallet error', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Admin endpoint: release held payments for a clinic
+export const releaseHeldPayment = async (req, res) => {
+  try {
+    const { id } = req.params; // clinic id
+    const { amount } = req.body; // optional amount to release (in cents). If omitted, release full heldBalance
+
+    const clinic = await Clinic.findById(id);
+    if (!clinic) return res.status(404).json({ success: false, message: 'Clinic not found' });
+
+    const held = clinic.heldBalance || 0;
+    if (held <= 0) return res.status(400).json({ success: false, message: 'No held funds to release' });
+
+    const releaseAmount = amount && amount > 0 && amount <= held ? amount : held;
+
+    // Decrease heldBalance and increase walletBalance (clinic sees funds on their app wallet)
+    clinic.heldBalance = held - releaseAmount;
+    clinic.walletBalance = (clinic.walletBalance || 0) + releaseAmount;
+    await clinic.save();
+
+    // Record release transaction
+    const txn = await ClinicTransaction.create({
+      clinicId: clinic._id,
+      type: 'release',
+      amount: releaseAmount,
+      currency: 'usd',
+      description: `Admin released held funds of ${releaseAmount} cents to clinic wallet`,
+    });
+
+    // Optionally, auto-transfer to connected Stripe account when releasing (if configured)
+    if (process.env.AUTO_TRANSFER_ON_RELEASE === 'true' && clinic.stripeAccountId) {
+      try {
+        // Create a transfer from platform to connected account
+        const transfer = await stripe.transfers.create({
+          amount: releaseAmount,
+          currency: 'usd',
+          destination: clinic.stripeAccountId,
+          metadata: { clinicId: clinic._id.toString(), clinicTransactionId: txn._id.toString() }
+        });
+
+        // Record transfer id on transaction and also mark as credit -> then debit from wallet mirror
+        txn.stripeTransferId = transfer.id;
+        txn.type = 'credit';
+        txn.description += `; transferred to Stripe account ${clinic.stripeAccountId}`;
+        await txn.save();
+
+        // Decrease walletBalance because money moved out to Stripe (mirror)
+        clinic.walletBalance = (clinic.walletBalance || 0) - releaseAmount;
+        await clinic.save();
+      } catch (e) {
+        console.error('Auto transfer on release failed', e.message);
+      }
+    }
+
+    res.json({ success: true, message: 'Released held funds', data: { clinic, transaction: txn } });
+  } catch (err) {
+    console.error('Release held error', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------------
+// Withdraw from clinic in-app wallet (creates a debit transaction and decreases walletBalance)
+// Note: For Express accounts, actual payouts are handled by Stripe. This endpoint only adjusts our app-level mirror and can be used to request payouts.
+// ---------------------------------
+export const withdrawFromWallet = async (req, res) => {
+  try {
+    const { id } = req.params; // clinic id
+    const { amount, currency = 'usd', description } = req.body; // amount in cents
+
+    if (!amount || amount <= 0) return res.status(400).json({ success: false, message: 'Valid amount is required' });
+
+    const clinic = await Clinic.findById(id);
+    if (!clinic) return res.status(404).json({ success: false, message: 'Clinic not found' });
+
+    if ((clinic.walletBalance || 0) < amount) return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
+
+    // Decrease app-level wallet mirror
+    clinic.walletBalance = (clinic.walletBalance || 0) - amount;
+    await clinic.save();
+
+    // Record a debit transaction
+    const txn = new ClinicTransaction({ clinicId: clinic._id, type: 'debit', amount, currency, description });
+    await txn.save();
+
+    // Optionally initiate a Stripe transfer to clinic's connected account when configured
+    if (process.env.AUTO_PAYOUT_ON_WITHDRAW === 'true' && clinic.stripeAccountId) {
+      try {
+        const transfer = await stripe.transfers.create({
+          amount: amount,
+          currency: currency,
+          destination: clinic.stripeAccountId,
+          metadata: { clinicId: clinic._id.toString(), clinicTransactionId: txn._id.toString() }
+        });
+
+        txn.stripeTransferId = transfer.id;
+        txn.description = (txn.description || '') + `; transferred to Stripe account ${clinic.stripeAccountId}`;
+        await txn.save();
+      } catch (e) {
+        console.error('Auto payout on withdraw failed', e.message);
+      }
+    }
+
+    res.json({ success: true, message: 'Withdrawal recorded', data: { clinic, transaction: txn } });
+  } catch (err) {
+    console.error('Withdraw error', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // Get clinic reviews
 export const getClinicReviews = async (req, res) => {
   try {
@@ -501,13 +704,13 @@ export const getClinicsByLocation = async (req, res) => {
       if (!clinic.coordinates.latitude || !clinic.coordinates.longitude) {
         return false;
       }
-      
+
       const distance = calculateDistance(
         lat, lng,
         clinic.coordinates.latitude,
         clinic.coordinates.longitude
       );
-      
+
       return distance <= rad;
     });
 
@@ -564,11 +767,11 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371; // Radius of the Earth in kilometers
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   const distance = R * c;
   return distance;
 }

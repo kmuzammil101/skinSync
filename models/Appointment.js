@@ -26,9 +26,14 @@ const appointmentSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['pending', 'confirmed', 'cancelled'],
+        enum: ['pending', 'confirmed', 'cancelled', 'paid', 'failed', 'refunded'],
         default: 'pending'
-    }
+    },
+    // Payment related fields
+    amount: { type: Number }, // price in smallest currency unit (e.g., cents)
+    currency: { type: String, default: 'usd' },
+    stripePaymentIntentId: { type: String },
+    paymentStatus: { type: String, enum: ['unpaid', 'processing', 'paid', 'failed', 'refunded'], default: 'unpaid' }
 }, {
     timestamps: true
 });

@@ -7,6 +7,7 @@ import {
   getAppointmentsByDate,
   updateAppointmentStatus,
   cancelAppointment,
+  getMonthSlots,
   getUpcomingAppointments
 } from '../controllers/appointmentController.js';
 
@@ -30,6 +31,9 @@ router.get('/:id', getAppointmentById);
 
 // Get appointments by date
 router.get('/date/:date', getAppointmentsByDate);
+
+// Get available slots for a month (days adjusted by month length)
+router.get('/slots/:clinicId/:year/:month', getMonthSlots);
 
 // Update appointment status
 router.put('/:id/status', updateAppointmentStatus);

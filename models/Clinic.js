@@ -29,38 +29,37 @@ const proofOfExpertise = new mongoose.Schema({
 
 const slowDaySchema = new mongoose.Schema({
     daysOfWeek: {
-        type: [String], // e.g. ["Mon", "Tue"]
-        required: true
+        type: [String],
     },
     timeRange: {
-        start: { type: String, required: true }, // or Date if you prefer parsing
-        end: { type: String, required: true }
+        start: { type: String, }, // or Date if you prefer parsing
+        end: { type: String, }
     }
 });
 
 const clinicSchema = new mongoose.Schema({
     name: {
         type: String,
-        required: true
+        // required: true
     },
     description: {
         type: String,
-        required: true
+        // required: true
     },
     image: {
         type: String,
-        required: true
+        // required: true
     },
     address: {
         type: String,
-        required: true
+        // required: true
     },
     website: {
         type: String,
     },
     businessHours: {
         type: String,
-        required: true
+        // required: true
     },
     slowDays: [slowDaySchema],
     proofOfExpertise: {
@@ -83,12 +82,20 @@ const clinicSchema = new mongoose.Schema({
     // Contact information
     phone: {
         type: String,
-        required: true
+        // required: true
     },
     email: {
         type: String,
         required: true
     },
+    // Stripe Connect fields
+    stripeAccountId: { type: String }, // connected account id (acct_...)
+    accountType: { type: String, enum: ['express', 'standard', 'custom'], default: 'express' },
+    onboardingComplete: { type: Boolean, default: false },
+    // Optional: mirror of clinic in-app wallet (cents)
+    walletBalance: { type: Number, default: 0 },
+    // Held balance: funds received by platform but held for clinic until admin releases (cents)
+    heldBalance: { type: Number, default: 0 },
 
     // Location details
     coordinates: {
