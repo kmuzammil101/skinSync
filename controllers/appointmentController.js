@@ -9,7 +9,7 @@ dotenv.config();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-08-16' });
 
 // Create a new appointment
-export const createAppointment = async (req, res) => {
+export const createAppointmentPayment = async (req, res) => {
   try {
     const userId = req.user.userId;
     const { clinicId, treatmentId, date, time } = req.body;
@@ -48,62 +48,43 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    // Check for conflicting appointments
-    const appointmentDate = new Date(date);
-    const existingAppointment = await Appointment.findOne({
-      userId,
-      clinicId,
-      date: appointmentDate,
-      time,
-      status: { $in: ['pending', 'confirmed'] }
-    });
+    // Calculate amount in cents
+    const amount = process.env.PRICE_IN_CENTS === 'true'
+      ? treatment.price
+      : Math.round((treatment.price || 0) * 100);
 
-    if (existingAppointment) {
-      return res.status(400).json({
-        success: false,
-        message: 'You already have an appointment at this time'
-      });
-    }
-
-  // create appointment record but keep payment info until payment confirmed
-  // Ensure amount is in cents for Stripe. Configure PRICE_IN_CENTS=true if treatment.price is already in cents.
-  const amount = process.env.PRICE_IN_CENTS === 'true' ? treatment.price : Math.round((treatment.price || 0) * 100);
-    const appt = new Appointment({
-      userId,
-      clinicId,
-      treatmentId,
-      date: appointmentDate,
-      time,
-      status: 'pending',
-      amount: amount,
-      currency: 'usd',
-      paymentStatus: 'unpaid'
-    });
-    await appt.save();
-    // Create PaymentIntent on platform only (no connected account onboarding)
-    // Create PaymentIntent on platform only (no transfer to connected account)
+    // Create PaymentIntent with metadata (appointment details)
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amount,
-      currency: appt.currency || 'usd',
-      metadata: { appointmentId: appt._id.toString(), userId },
+      currency: 'usd',
+      metadata: {
+        userId: userId.toString(),
+        clinicId: clinicId.toString(),
+        treatmentId: treatmentId.toString(),
+        date,
+        time
+      },
       automatic_payment_methods: { enabled: true }
     });
 
-    appt.stripePaymentIntentId = paymentIntent.id;
-    appt.paymentStatus = 'processing';
-    await appt.save();
-
-    // Return client secret so frontend can confirm payment
-    res.status(201).json({ success: true, message: 'Appointment created, proceed to payment', data: { appointment: appt, clientSecret: paymentIntent.client_secret, appointmentId: appt._id } });
-
+    // Return client secret for frontend payment
+    res.status(201).json({
+      success: true,
+      message: 'Proceed to payment',
+      data: {
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id
+      }
+    });
   } catch (error) {
-    console.error('Create appointment error:', error);
+    console.error('Create appointment payment error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'
     });
   }
 };
+
 
 
 export const getMonthSlots = async (req, res) => {
@@ -194,16 +175,16 @@ export const getMonthSlots = async (req, res) => {
 export const getAppointments = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { 
-      page = 1, 
-      limit = 10, 
-      status, 
-      sortBy = 'date', 
-      sortOrder = 'desc' 
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      sortBy = 'date',
+      sortOrder = 'desc'
     } = req.query;
 
     const query = { userId };
-    
+
     // Filter by status if provided
     if (status) {
       query.status = status;
@@ -341,7 +322,7 @@ export const updateAppointmentStatus = async (req, res) => {
       { status },
       { new: true, runValidators: true }
     ).populate('clinicId', 'name address image')
-     .populate('treatmentId', 'name price image');
+      .populate('treatmentId', 'name price image');
 
     if (!appointment) {
       return res.status(404).json({
@@ -376,7 +357,7 @@ export const cancelAppointment = async (req, res) => {
       { status: 'cancelled' },
       { new: true, runValidators: true }
     ).populate('clinicId', 'name address image')
-     .populate('treatmentId', 'name price image');
+      .populate('treatmentId', 'name price image');
 
     if (!appointment) {
       return res.status(404).json({
@@ -411,10 +392,10 @@ export const getUpcomingAppointments = async (req, res) => {
       status: { $in: ['pending', 'confirmed'] },
       date: { $gte: new Date() }
     })
-    .populate('clinicId', 'name address image')
-    .populate('treatmentId', 'name price image')
-    .sort({ date: 1, time: 1 })
-    .limit(parseInt(limit));
+      .populate('clinicId', 'name address image')
+      .populate('treatmentId', 'name price image')
+      .sort({ date: 1, time: 1 })
+      .limit(parseInt(limit));
 
     res.json({
       success: true,

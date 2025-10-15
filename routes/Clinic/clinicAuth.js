@@ -1,5 +1,5 @@
 import express from 'express';
-import { sendClinicOTP, verifyClinicOTP } from '../controllers/clinicAuthController.js';
+import { sendClinicOTP, verifyClinicOTP } from '../../controllers/clinicAuthController.js';
 
 const router = express.Router();
 

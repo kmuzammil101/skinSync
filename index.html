@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Book Appointment Payment</title>
+  <script src="https://js.stripe.com/v3/"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 50px; }
+    #card-element { padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 10px; }
+    #payment-message { color: green; margin-top: 10px; }
+    #error-message { color: red; margin-top: 10px; }
+    button { padding: 10px 20px; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h2>Pay for Appointment</h2>
+  <div id="payment-form">
+    <div id="card-element"><!-- Stripe Element will go here --></div>
+    <button id="submit">Pay</button>
+  </div>
+  <div id="payment-message"></div>
+  <div id="error-message"></div>
+
+  <script>
+    // Replace with your Stripe publishable key
+    const stripe = Stripe('pk_test_51SDZuUH1D39b0IrwAF7tBjTdefHdgZIIARWKUBaF5cuF1esMhN3pm0cryc9wJLxHkuHsmiR888oXUHUYRNiVVPDX007sZyC1lW');
+
+    // Replace with the clientSecret you got from your backend API
+    const clientSecret = 'pi_3SIco4H1D39b0Irw1OWiz6nn_secret_s0D4iPw2BOalobEoQVDrgmr1C';
+
+    const elements = stripe.elements();
+    const cardElement = elements.create('card');
+    cardElement.mount('#card-element');
+
+    const submitButton = document.getElementById('submit');
+    const paymentMessage = document.getElementById('payment-message');
+    const errorMessage = document.getElementById('error-message');
+
+    submitButton.addEventListener('click', async () => {
+      submitButton.disabled = true;
+      paymentMessage.textContent = '';
+      errorMessage.textContent = '';
+
+      const { paymentIntent, error } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: cardElement,
+          billing_details: {
+            name: 'Test User',  // Replace with your form value
+            email: 'testing1@mailinator.com'  // Replace with your form value
+          }
+        }
+      });
+
+      if (error) {
+        errorMessage.textContent = error.message;
+        submitButton.disabled = false;
+      } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+        paymentMessage.textContent = 'Payment succeeded! Appointment will be created automatically.';
+      }
+    });
+  </script>
+</body>
+</html>

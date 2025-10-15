@@ -1,14 +1,14 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import {
-  createAppointment,
   getAppointments,
   getAppointmentById,
   getAppointmentsByDate,
   updateAppointmentStatus,
   cancelAppointment,
   getMonthSlots,
-  getUpcomingAppointments
+  getUpcomingAppointments,
+  createAppointmentPayment
 } from '../controllers/appointmentController.js';
 
 const router = express.Router();
@@ -17,7 +17,8 @@ const router = express.Router();
 router.use(authenticateToken);
 
 // Create appointment
-router.post('/', createAppointment);
+router.post('/book-appointment', createAppointmentPayment);
+
 
 
 // Get all appointments for user

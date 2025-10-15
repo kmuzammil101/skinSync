@@ -14,6 +14,8 @@ const clinicTransactionSchema = new mongoose.Schema({
   stripeChargeId: { type: String },
   stripePayoutId: { type: String },
   metadata: { type: Object },
+  // controls whether this transaction should be shown in clinic wallet listing
+  visible: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now }
 });
 

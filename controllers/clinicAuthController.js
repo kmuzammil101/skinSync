@@ -82,17 +82,21 @@ export const verifyClinicOTP = async (req, res) => {
       isNewUser = true;
     }
 
+    // Generate token
+    const token = generateToken(clinic._id);
+
+    // Attach token to clinic object
+    clinic = clinic.toObject(); // convert mongoose document to plain object
+    clinic.token = token;
+
     // Mark OTP used
     verificationRecord.isUsed = true;
     await verificationRecord.save();
 
-    // Generate token
-    const token = generateToken(clinic._id);
-
     res.json({
       success: true,
       message: 'Clinic verified successfully',
-      data: { token, clinic, isNewUser }
+      data: { clinic, isNewUser }
     });
   } catch (error) {
     console.error('Error verifying clinic OTP:', error);

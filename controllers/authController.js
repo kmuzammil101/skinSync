@@ -149,7 +149,7 @@ export const sendOTP = async (req, res) => {
 export const verifyOTP = async (req, res) => {
   try {
     const { email, code } = req.body;
-
+    console.log('Verifying OTP for email:', email, 'code:', code);
     // Find verification code (ignore isUsed, attempts)
     const verificationRecord = await VerificationCode.findOne({
       email,
@@ -201,7 +201,7 @@ export const verifyOTP = async (req, res) => {
       }
       user.lastLogin = new Date();
       await user.save();
-
+      console.log('Existing user logged in:', user.email);
       return res.json({
         success: true,
         message: 'Login successful',

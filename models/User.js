@@ -124,7 +124,10 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  deviceToken: { type: String }
+  deviceToken: {
+  type: [String],
+  default: []
+}
 }, {
   timestamps: true
 });

@@ -1,5 +1,4 @@
 import express from 'express';
-import { authenticateToken } from '../middleware/auth.js';
 import {
   getClinics,
   getClinicById,
@@ -11,10 +10,10 @@ import {
   deleteReview,
   getClinicReviews,
   getClinicsByLocation
-} from '../controllers/clinicController.js';
+} from '../../controllers/clinicController.js';
 
-import { onboardClinic, getClinicWallet, withdrawFromWallet, releaseHeldPayment } from '../controllers/clinicController.js';
-import { authorizeAdmin } from '../middleware/auth.js';
+import { onboardClinic, getClinicWallet, withdrawFromWallet } from '../../controllers/clinicController.js';
+import { authenticateClinicToken } from '../../middleware/clinicAuth.js';
 
 const router = express.Router();
 
@@ -25,7 +24,7 @@ router.get('/getClinicById/:id', getClinicById);
 router.get('/:id/reviews', getClinicReviews);
 
 // Protected routes (authentication required)
-router.use(authenticateToken);
+router.use(authenticateClinicToken);
 
 // Create clinic (admin only - you might want to add role-based auth here)
 router.post('/create-clinic', createClinic);
@@ -36,8 +35,7 @@ router.post('/onboard', onboardClinic);
 // Clinic wallet endpoints
 router.get('/:id/wallet', getClinicWallet);
 router.post('/:id/withdraw', withdrawFromWallet);
-// Admin releases held payments for a clinic into its in-app wallet (or optionally transfers to Stripe)
-router.post('/:id/release', authorizeAdmin, releaseHeldPayment);
+
 
 // Update clinic
 router.put('/:id', updateClinic);
