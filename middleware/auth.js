@@ -53,21 +53,46 @@ export const authenticateToken = async (req, res, next) => {
   }
 };
 
-export const authorizeAdmin = (req, res, next) => {
+export const authorizeAdmin = async (req, res, next) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access token required',
+      });
     }
-    // Lookup Admin collection for this userId
-    Admin.findOne({ userId: req.user.userId }).then(admin => {
-      if (!admin) return res.status(403).json({ success: false, message: 'Admin privileges required' });
-      next();
-    }).catch(err => {
-      console.error('Admin lookup error', err);
-      res.status(500).json({ success: false, message: 'Internal server error' });
-    });
+
+    // 🔐 Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded; // attach decoded data to req.user
+    // 🧠 Look up admin by email or role
+    const admin = await Admin.findById({ _id: decoded.adminId });
+    console.log('authorizeAdmin - decoded:', decoded, 'admin found:', !!admin);
+    if (!admin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin privileges required',
+      });
+    }
+
+    // ✅ Optionally, check role if you have different levels
+    if (!['admin', 'superadmin'].includes(admin.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Insufficient privileges',
+      });
+    }
+
+    // Everything OK — proceed
+    next();
   } catch (err) {
-    console.error('Admin authorization error', err);
-    res.status(500).json({ success: false, message: 'Internal server error' });
+    console.error('authorizeAdmin error:', err.message);
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ success: false, message: 'Token expired' });
+    }
+    res.status(500).json({ success: false, message: 'Invalid or expired token' });
   }
 };

@@ -22,6 +22,23 @@ export const createAppointmentPayment = async (req, res) => {
       });
     }
 
+    // Validate date/time formats (basic checks)
+    const apptDate = new Date(date);
+    if (isNaN(apptDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid date format' });
+    }
+    // Prevent booking before today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (apptDate < today) {
+      return res.status(400).json({ success: false, message: 'Cannot book appointments in the past' });
+    }
+    // Expect time like '09:00' or '14:30'
+    // Accept time in 'HH:MM', 'HH:MM AM', or 'HH:MM PM' format
+    if (!/^(\d{2}:\d{2})(\s?(AM|PM))?$/i.test(time)) {
+      return res.status(400).json({ success: false, message: 'Invalid time format (expected HH:MM or HH:MM AM/PM)' });
+    }
+
     // Check if clinic exists
     const clinic = await Clinic.findById(clinicId);
     if (!clinic) {
@@ -48,27 +65,64 @@ export const createAppointmentPayment = async (req, res) => {
       });
     }
 
+    // Normalize date to local date only (strip time component) for conflict checks
+    const startOfDay = new Date(apptDate.getFullYear(), apptDate.getMonth(), apptDate.getDate());
+    const endOfDay = new Date(apptDate.getFullYear(), apptDate.getMonth(), apptDate.getDate(), 23, 59, 59, 999);
+
+    // Conflict checks
+    // 1) Check if the clinic already has an appointment at this date/time (pending/confirmed)
+    const existingClinicAppt = await Appointment.findOne({
+      clinicId,
+      date: { $gte: startOfDay, $lte: endOfDay },
+      time,
+      status: { $in: ['pending', 'confirmed'] }
+    });
+    if (existingClinicAppt) {
+      return res.status(409).json({ success: false, message: 'Selected time slot is already booked at this clinic' });
+    }
+
+    // 2) Prevent user from double-booking same date/time (same or different clinic)
+    const existingUserAppt = await Appointment.findOne({
+      userId,
+      date: { $gte: startOfDay, $lte: endOfDay },
+      time,
+      status: { $in: ['pending', 'confirmed'] }
+    });
+    if (existingUserAppt) {
+      return res.status(409).json({ success: false, message: 'You already have an appointment at this time' });
+    }
+
     // Calculate amount in cents
     const amount = process.env.PRICE_IN_CENTS === 'true'
       ? treatment.price
       : Math.round((treatment.price || 0) * 100);
 
     // Create PaymentIntent with metadata (appointment details)
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: amount,
-      currency: 'usd',
-      metadata: {
-        userId: userId.toString(),
-        clinicId: clinicId.toString(),
-        treatmentId: treatmentId.toString(),
-        date,
-        time
-      },
-      automatic_payment_methods: { enabled: true }
-    });
+    let paymentIntent;
+    try {
+      paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: 'usd',
+        metadata: {
+          userId: userId.toString(),
+          clinicId: clinicId.toString(),
+          treatmentId: treatmentId.toString(),
+          date,
+          time
+        },
+        automatic_payment_methods: { enabled: true }
+      });
+    } catch (stripeErr) {
+      console.error('Stripe error creating PaymentIntent:', stripeErr);
+      // Map common Stripe errors to appropriate HTTP statuses
+      if (stripeErr.type === 'StripeInvalidRequestError') {
+        return res.status(400).json({ success: false, message: stripeErr.message });
+      }
+      return res.status(502).json({ success: false, message: 'Payment provider error' });
+    }
 
     // Return client secret for frontend payment
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: 'Proceed to payment',
       data: {
@@ -78,10 +132,11 @@ export const createAppointmentPayment = async (req, res) => {
     });
   } catch (error) {
     console.error('Create appointment payment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error'
-    });
+    // If it's a known Mongoose validation or cast error
+    if (error.name === 'ValidationError' || error.name === 'CastError') {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -138,28 +193,34 @@ export const getMonthSlots = async (req, res) => {
       apptMap[key].add(a.time);
     });
 
-    // Build result array for each day
+    // Build result array for each day (include weekday name)
     const result = [];
+    const daysOfWeek = [];
     for (let day = 1; day <= daysInMonth; day++) {
       const dateObj = new Date(y, m - 1, day);
       const dateKey = dateObj.toLocaleDateString('en-CA'); // ✅ local-safe
       const bookedSet = apptMap[dateKey] || new Set();
+
+      // Weekday name, e.g. Monday
+      const weekday = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+      daysOfWeek.push(weekday);
 
       const slotsForDay = slotList.map(t => ({
         time: t,
         alreadyBooked: bookedSet.has(t)
       }));
 
-      result.push({ date: dateKey, slots: slotsForDay });
+      result.push({ date: dateKey, day: weekday, slots: slotsForDay });
     }
 
     // ✅ Sort by date ascending (1st day → last day)
     result.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // Send response
+    // Send response (include explicit days array for clients that need the list)
+    const daysArray = result.map(d => d.date);
     res.json({
       success: true,
-      data: { year: y, month: m, days: daysInMonth, result }
+      data: { year: y, month: m, days: daysInMonth, daysArray, daysOfWeek, result }
     });
 
   } catch (err) {

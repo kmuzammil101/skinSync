@@ -18,6 +18,7 @@ import clinicRoutes from './routes/Clinic/clinics.js';
 import saveRoutes from "./routes/save.js"
 import clinicAuthRoutes from './routes/Clinic/clinicAuth.js';
 import adminAuthRoutes from './routes/Admin/adminAuth.js';
+import adminPaymentRoutes from './routes/Admin/paymentsAdmin.js';
 import path from 'path';
 
 dotenv.config();
@@ -54,16 +55,17 @@ app.post(
         case 'payment_intent.succeeded': {
           const pi = event.data.object;
 
-          // 🧩 ADDED: Check metadata for booking info (when no Appointment yet)
-          const { userId, clinicId, treatmentId, date, time, appointmentId } =
-            pi.metadata || {};
+          // 🧩 Extract metadata (for appointments created after payment)
+          const { userId, clinicId, treatmentId, date, time, appointmentId } = pi.metadata || {};
 
-          // Find appointment by PaymentIntent if it already exists
-          let appt = await Appointment.findOne({
-            stripePaymentIntentId: pi.id,
-          });
+          // 💰 Stripe sends amounts in cents → convert to dollars
+          const amountReceivedCents = pi.amount_received || pi.amount || 0;
+          const amountReceived = amountReceivedCents / 100; // now in dollars
 
-          // 🧩 ADDED: If appointment doesn’t exist (you create it *after* payment)
+          // 🧩 Find appointment by PaymentIntent
+          let appt = await Appointment.findOne({ stripePaymentIntentId: pi.id });
+
+          // 🧩 If appointment doesn’t exist, create it (from metadata)
           if (!appt && clinicId && treatmentId && userId) {
             appt = await Appointment.create({
               userId,
@@ -72,7 +74,7 @@ app.post(
               date: new Date(date),
               time,
               status: 'confirmed',
-              amount: pi.amount_received || pi.amount,
+              amount: amountReceived, // ✅ stored in dollars
               currency: pi.currency || 'usd',
               stripePaymentIntentId: pi.id,
               paymentStatus: 'paid',
@@ -81,76 +83,67 @@ app.post(
 
           if (!appt) break;
 
-          // Update payment + confirmation if exists
+          // 🧾 Update appointment status
           appt.paymentStatus = 'paid';
           appt.status = 'confirmed';
           await appt.save();
 
-          // Record a platform transaction (admin received funds)
-          const existingTxn = await ClinicTransaction.findOne({
-            paymentIntentId: pi.id,
-          });
-          const amountReceived = pi.amount_received || pi.amount || appt.amount;
+          // 💰 Record platform transaction (admin received funds)
+          const existingTxn = await ClinicTransaction.findOne({ paymentIntentId: pi.id });
           if (!existingTxn) {
             await ClinicTransaction.create({
               clinicId: appt.clinicId,
-              type: 'platform_receipt',
-              amount: amountReceived,
+              type: 'hold',
+              amount: amountReceived, // ✅ in dollars
               currency: appt.currency || 'usd',
               description: `Platform received payment for Appointment ${appt._id}`,
               appointmentId: appt._id,
               paymentIntentId: pi.id,
+              visible: false,
             });
           }
 
-          // Record a user-facing transaction (platform charged the user)
+          // 👤 Record a user-facing transaction (platform charged the user)
           try {
             const existingUserTxn = await UserTransaction.findOne({ paymentIntentId: pi.id });
             if (!existingUserTxn) {
-              // Try to populate clinic and treatment names for a friendly description
+              // Try to get readable names
               let clinicName = 'Clinic';
               let treatmentName = 'Treatment';
               try {
-              const clinic = await Clinic.findById(appt.clinicId).select('name');
-              if (clinic && clinic.name) clinicName = clinic.name;
-              } catch (e) {
-              // ignore lookup failure
-              }
-              try {
-              const Treatment = (await import('./models/Treatment.js')).default;
-              const treatment = await Treatment.findById(appt.treatmentId).select('name');
-              if (treatment && treatment.name) treatmentName = treatment.name;
-              } catch (e) {
-              // ignore lookup failure
-              }
+                const clinic = await Clinic.findById(appt.clinicId).select('name');
+                if (clinic?.name) clinicName = clinic.name;
+              } catch { }
 
-              // Convert amount from cents to actual (e.g., $)
-              const actualAmount = (amountReceived / 100).toFixed(2);
+              try {
+                const Treatment = (await import('./models/Treatment.js')).default;
+                const treatment = await Treatment.findById(appt.treatmentId).select('name');
+                if (treatment?.name) treatmentName = treatment.name;
+              } catch { }
 
               await UserTransaction.create({
-              userId: appt.userId,
-              type: 'platform_charge',
-              amount: actualAmount,
-              currency: appt.currency || 'usd',
-              description: `Charged $${actualAmount} for ${treatmentName} at ${clinicName} (Appointment ${appt._id})`,
-              appointmentId: appt._id,
-              paymentIntentId: pi.id,
-              // mark hold so user's wallet doesn't show this as available balance
-              visible: false
+                userId: appt.userId,
+                type: 'platform_charge',
+                amount: amountReceived, // ✅ in dollars
+                currency: appt.currency || 'usd',
+                description: `Charged $${amountReceived.toFixed(2)} for ${treatmentName} at ${clinicName} (Appointment ${appt._id})`,
+                appointmentId: appt._id,
+                paymentIntentId: pi.id,
+                visible: true,
               });
             }
           } catch (e) {
-            console.error('Failed to create UserTransaction for payment_intent.succeeded', e.message);
+            console.error('Failed to create UserTransaction for payment_intent.succeeded:', e.message);
           }
 
-          // Record hold (funds awaiting admin release) - idempotent and update clinic heldBalance
+          // 💼 Record hold (funds awaiting admin release) - idempotent + update clinic balance
           try {
             const existingHold = await ClinicTransaction.findOne({ paymentIntentId: pi.id, type: 'hold' });
             if (!existingHold) {
-              const holdTxn = await ClinicTransaction.create({
+              await ClinicTransaction.create({
                 clinicId: appt.clinicId,
                 type: 'hold',
-                amount: amountReceived,
+                amount: amountReceived, // ✅ in dollars
                 currency: appt.currency || 'usd',
                 description: `Funds on hold for Appointment ${appt._id}`,
                 appointmentId: appt._id,
@@ -158,7 +151,7 @@ app.post(
                 visible: false,
               });
 
-              // Increment clinic heldBalance by amountReceived (cents)
+              // Increment clinic heldBalance in dollars
               try {
                 const clinic = await Clinic.findById(appt.clinicId);
                 if (clinic) {
@@ -166,17 +159,17 @@ app.post(
                   await clinic.save();
                 }
               } catch (e) {
-                console.error('Failed to update clinic heldBalance for hold txn', e.message);
+                console.error('Failed to update clinic heldBalance:', e.message);
               }
             }
           } catch (e) {
-            console.error('Failed to create hold ClinicTransaction', e.message);
+            console.error('Failed to create hold ClinicTransaction:', e.message);
           }
 
-          // 🧩 ADDED: Optional log for debugging successful webhook
-          console.log(`✅ Payment succeeded, Appointment ${appt._id} confirmed.`);
+          console.log(`✅ Payment succeeded — Appointment ${appt._id} confirmed, $${amountReceived.toFixed(2)} received.`);
           break;
         }
+
 
         // -------------------------------
         // ⚠️ Payment failed
@@ -199,73 +192,80 @@ app.post(
         // -------------------------------
         case 'charge.refunded': {
           const charge = event.data.object;
-          const paymentIntentId =
-            charge.payment_intent || charge.metadata?.payment_intent || null;
-          let appt = null;
+          const paymentIntentId = charge.payment_intent || charge.metadata?.payment_intent || null;
 
-          if (paymentIntentId) {
-            appt = await Appointment.findOne({
-              stripePaymentIntentId: paymentIntentId,
-            });
-          }
-
-          if (appt) {
-            const clinic = await Clinic.findById(appt.clinicId);
-            if (clinic) {
-              const existingRefund = await ClinicTransaction.findOne({
-                stripeChargeId: charge.id,
-                type: 'debit',
-              });
-              if (!existingRefund) {
-                await ClinicTransaction.create({
-                  clinicId: clinic._id,
-                  type: 'debit',
-                  amount: charge.amount_refunded,
-                  currency: charge.currency,
-                  description:
-                    'Refund issued to patient (reversed from held funds/wallet)',
-                  stripeChargeId: charge.id,
-                });
-
-                if ((clinic.heldBalance || 0) >= charge.amount_refunded) {
-                  clinic.heldBalance =
-                    (clinic.heldBalance || 0) - charge.amount_refunded;
-                } else {
-                  clinic.walletBalance =
-                    (clinic.walletBalance || 0) - charge.amount_refunded;
-                }
-                await clinic.save();
-              }
+          try {
+            // 1️⃣ Find the related appointment
+            let appointment = null;
+            if (paymentIntentId) {
+              appointment = await Appointment.findOne({ stripePaymentIntentId: paymentIntentId });
             }
-          } else {
-            const connectedAccountId =
-              event.account || charge.transfer_data?.destination;
-            const clinic = await Clinic.findOne({
-              stripeAccountId: connectedAccountId,
-            });
-            if (!clinic) break;
 
-            const existingRefund = await ClinicTransaction.findOne({
+            if (!appointment) {
+              console.log('⚠️ charge.refunded: No appointment found for payment_intent', paymentIntentId);
+              break;
+            }
+
+            // 2️⃣ Idempotency — skip if already refunded
+            const existingClinicTxn = await ClinicTransaction.findOne({
+              paymentIntentId,
+              type: { $in: ['debit', 'cancelled'] }, // support both naming conventions
+            });
+
+            if (existingClinicTxn) {
+              console.log(`ℹ️ Refund already handled for ${paymentIntentId}, skipping webhook.`);
+              break;
+            }
+
+            // 3️⃣ Create clinic transaction (refund/debit entry)
+            await ClinicTransaction.create({
+              clinicId: appointment.clinicId,
+              type: 'cancelled',
+              amount: charge.amount_refunded || 0,
+              currency: charge.currency || appointment.currency || 'usd',
+              description: `Refund issued to patient for Appointment ${appointment._id}`,
+              appointmentId: appointment._id,
+              paymentIntentId,
               stripeChargeId: charge.id,
-              type: 'debit',
+              visible: true,
             });
-            if (!existingRefund) {
-              await ClinicTransaction.create({
-                clinicId: clinic._id,
-                type: 'debit',
-                amount: charge.amount_refunded,
-                currency: charge.currency,
-                description: 'Refund issued to patient',
-                stripeChargeId: charge.id,
-              });
 
-              clinic.walletBalance =
-                (clinic.walletBalance || 0) - charge.amount_refunded;
-              await clinic.save();
+            // 4️⃣ Create user refund transaction if not exists
+            const existingUserRefund = await UserTransaction.findOne({
+              paymentIntentId,
+              type: 'refund',
+            });
+
+            if (!existingUserRefund) {
+              await UserTransaction.create({
+                userId: appointment.userId,
+                type: 'refund',
+                amount: charge.amount_refunded || appointment.amount || 0,
+                currency: charge.currency || appointment.currency || 'usd',
+                description: `Refund issued for Appointment ${appointment._id}`,
+                appointmentId: appointment._id,
+                paymentIntentId,
+                stripeChargeId: charge.id,
+                visible: true,
+              });
             }
+
+            // 5️⃣ Update appointment status if not already refunded
+            if (appointment.status !== 'refunded') {
+              appointment.status = 'refunded';
+              appointment.paymentStatus = 'refunded';
+              await appointment.save();
+            }
+
+            console.log(`✅ charge.refunded processed for Appointment ${appointment._id}`);
+          } catch (err) {
+            console.error('❌ Error handling charge.refunded webhook:', err);
           }
+
           break;
         }
+
+
 
         // -------------------------------
         // 🏦 Payout to clinic’s bank
@@ -348,6 +348,7 @@ app.use('/api/clinic-auth', clinicAuthRoutes);
 
 //for admins
 app.use('/api/admin-auth', adminAuthRoutes);
+app.use('/api/admin-payment', adminPaymentRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
