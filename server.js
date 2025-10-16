@@ -20,7 +20,7 @@ import clinicAuthRoutes from './routes/Clinic/clinicAuth.js';
 import adminAuthRoutes from './routes/Admin/adminAuth.js';
 import adminPaymentRoutes from './routes/Admin/paymentsAdmin.js';
 import path from 'path';
-
+//ignore
 dotenv.config();
 
 const app = express();
