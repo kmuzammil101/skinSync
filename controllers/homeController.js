@@ -11,7 +11,6 @@ export const getHomeData = async (req, res) => {
 
     // Get user data
     const user = await User.findById(userId).select('name profileImage loyaltyPoints');
-    
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -19,16 +18,51 @@ export const getHomeData = async (req, res) => {
       });
     }
 
-    // Get upcoming appointments (next 3)
-    const upcomingAppointments = await Appointment.find({
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    // 1️⃣ Today's appointments
+    const todaysAppointments = await Appointment.find({
       userId,
       status: { $in: ['pending', 'confirmed'] },
-      date: { $gte: new Date() }
+      date: { $gte: todayStart, $lte: todayEnd }
     })
     .populate('clinicId', 'name image')
     .populate('treatmentId', 'name image')
-    .sort({ date: 1 })
+    .sort({ date: 1, time: 1 });
+
+    // 2️⃣ Upcoming/future appointments (after today, limit 3)
+    const upcomingAppointments = await Appointment.find({
+      userId,
+      status: { $in: ['pending', 'confirmed'] },
+      date: { $gt: todayEnd }
+    })
+    .populate('clinicId', 'name image')
+    .populate('treatmentId', 'name image')
+    .sort({ date: 1, time: 1 })
     .limit(3);
+
+    // Combine today and upcoming appointments
+    const combinedAppointments = [
+      ...todaysAppointments.map(appt => ({ ...appt.toObject(), appointmentType: 'today' })),
+      ...upcomingAppointments.map(appt => ({ ...appt.toObject(), appointmentType: 'upcoming' }))
+    ];
+
+    // Format appointments for frontend
+    const formattedAppointments = combinedAppointments.map(appointment => ({
+      id: appointment._id,
+      treatmentName: appointment.treatmentId.name,
+      clinicName: appointment.clinicId.name,
+      clinicImage: appointment.clinicId.image,
+      treatmentImage: appointment.treatmentId.image,
+      date: appointment.date,
+      time: appointment.time,
+      status: appointment.status,
+      type: appointment.appointmentType // 'today' or 'upcoming'
+    }));
 
     // Get active promotions
     const activePromotions = await Promotion.find({
@@ -40,24 +74,6 @@ export const getHomeData = async (req, res) => {
     .sort({ createdAt: -1 })
     .limit(5);
 
-    // Calculate loyalty points progress (assuming max 1000 points for $250)
-    const maxPoints = 1000;
-    const currentPoints = user.loyaltyPoints || 0;
-    const pointsPercentage = Math.round((currentPoints / maxPoints) * 100);
-
-    // Format appointments data
-    const formattedAppointments = upcomingAppointments.map(appointment => ({
-      id: appointment._id,
-      treatmentName: appointment.treatmentId.name,
-      clinicName: appointment.clinicId.name,
-      clinicImage: appointment.clinicId.image,
-      treatmentImage: appointment.treatmentId.image,
-      date: appointment.date,
-      time: appointment.time,
-      status: appointment.status
-    }));
-
-    // Format promotions data
     const formattedPromotions = activePromotions.map(promotion => ({
       id: promotion._id,
       title: promotion.title,
@@ -70,10 +86,15 @@ export const getHomeData = async (req, res) => {
       image: promotion.image
     }));
 
-    // Check for pending reminders (appointments within 24 hours)
+    // Loyalty points
+    const maxPoints = 1000;
+    const currentPoints = user.loyaltyPoints || 0;
+    const pointsPercentage = Math.round((currentPoints / maxPoints) * 100);
+
+    // Pending reminders (next 24h)
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
+
     const pendingReminders = await Appointment.find({
       userId,
       status: 'confirmed',
@@ -140,6 +161,7 @@ export const getHomeData = async (req, res) => {
     });
   }
 };
+
 
 // Get user loyalty points
 export const getLoyaltyPoints = async (req, res) => {

@@ -448,10 +448,29 @@ export const getUpcomingAppointments = async (req, res) => {
     const userId = req.user.userId;
     const { limit = 5 } = req.query;
 
-    const appointments = await Appointment.find({
+    console.log('Fetching appointments for user:', userId);
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0); // Today 00:00:00
+
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999); // Today 23:59:59
+
+    // 1️⃣ Today's appointments
+    const todaysAppointments = await Appointment.find({
       userId,
       status: { $in: ['pending', 'confirmed'] },
-      date: { $gte: new Date() }
+      date: { $gte: todayStart, $lte: todayEnd },
+    })
+      .populate('clinicId', 'name address image')
+      .populate('treatmentId', 'name price image')
+      .sort({ date: 1, time: 1 });
+
+    // 2️⃣ Upcoming appointments (after today)
+    const upcomingAppointments = await Appointment.find({
+      userId,
+      status: { $in: ['pending', 'confirmed'] },
+      date: { $gt: todayEnd },
     })
       .populate('clinicId', 'name address image')
       .populate('treatmentId', 'name price image')
@@ -461,16 +480,17 @@ export const getUpcomingAppointments = async (req, res) => {
     res.json({
       success: true,
       data: {
-        appointments,
-        totalUpcoming: appointments.length
-      }
+        todaysAppointments,
+        upcomingAppointments,
+        totalToday: todaysAppointments.length,
+        totalUpcoming: upcomingAppointments.length,
+      },
     });
-
   } catch (error) {
-    console.error('Get upcoming appointments error:', error);
+    console.error('Get appointments error:', error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: 'Internal server error',
     });
   }
 };

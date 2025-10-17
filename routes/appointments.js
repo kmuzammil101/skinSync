@@ -14,7 +14,7 @@ import {
 const router = express.Router();
 
 // All routes require authentication
-// router.use(authenticateToken);
+router.use(authenticateToken);
 
 // Create appointment
 router.post('/book-appointment', createAppointmentPayment);
