@@ -1,4 +1,5 @@
 import Clinic from '../models/Clinic.js';
+import Appointment from '../models/Appointment.js';
 import Treatment from '../models/Treatment.js';
 import User from '../models/User.js';
 import { addIsSavedToClinics, addIsSavedToClinic } from '../utils/saveUtils.js';
@@ -461,6 +462,118 @@ export const onboardClinic = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+//create discount on treatment
+
+export const discountOnTreatment = async (req, res) => {
+  try {
+    const clinicId = req.user.clinicId;
+    const { treatmentId, discountPercentage } = req.body;
+    if (!treatmentId || !discountPercentage) {
+      return res.status(400).json({ success: false, message: 'treatmentId and discountPercentage are required' });
+    }
+    const treatment = await Treatment.findById(treatmentId);
+    if (!treatment) {
+      return res.status(404).json({ success: false, message: 'Treatment not found' });
+    }
+    if (treatment.clinicId.toString() !== clinicId) {
+      return res.status(403).json({ success: false, message: 'Unauthorized to modify this treatment' });
+    }
+    treatment.discountPercentage = discountPercentage;
+    await treatment.save();
+    res.json({ success: true, message: `Discount applied on ${treatment.name} successfully`, treatment });
+
+  } catch (err) {
+    console.error('Create discount error', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+
+export const upcomingAppointmentsOFClinic = async (req, res) => {
+  try {
+    // clinicId from authenticated clinic user
+    const clinicId = req.user?.clinicId;
+    if (!clinicId) return res.status(403).json({ success: false, message: 'Unauthorized: clinicId missing' });
+
+    // Pagination for upcoming list
+    const page = Math.max(1, parseInt(req.query.page || '1'));
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit || '20')));
+    const skip = (page - 1) * limit;
+
+    // Optional status filter (e.g., pending, confirmed, cancelled)
+    const statusFilter = req.query.status;
+
+    // Today's date range (local) — consider clinic timezone improvements later
+    const today = new Date();
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0);
+    const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+
+    // Build base query for clinic
+    const baseQuery = { clinicId };
+    if (statusFilter) baseQuery.status = statusFilter;
+
+    // 1) Fetch today's appointments
+    const todaysQuery = {
+      ...baseQuery,
+      date: { $gte: startOfToday, $lte: endOfToday }
+    };
+
+    const todaysAppointments = await Appointment.find(todaysQuery)
+      .sort({ time: 1 })
+      .populate('userId', 'name profileImage email')
+      .populate('treatmentId', 'name price')
+      .lean();
+
+    // 2) Fetch upcoming appointments (strictly after today)
+    const upcomingQuery = {
+      ...baseQuery,
+      date: { $gte: new Date(endOfToday.getTime() + 1) }
+    };
+
+    const totalUpcoming = await Appointment.countDocuments(upcomingQuery);
+    const upcomingAppointments = await Appointment.find(upcomingQuery)
+      .sort({ date: 1, time: 1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('userId', 'name profileImage email')
+      .populate('treatmentId', 'name price')
+      .lean();
+
+    res.json({
+      success: true,
+      data: {
+        clinicId,
+        todaysCount: todaysAppointments.length,
+        todaysAppointments,
+        upcoming: {
+          total: totalUpcoming,
+          page,
+          limit,
+          appointments: upcomingAppointments
+        }
+      }
+    });
+  } catch (err) {
+    console.error("error in upcoming appointments of clinic", err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // ---------------------------------
 // Get clinic wallet (balance + transactions)

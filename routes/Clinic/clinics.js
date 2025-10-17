@@ -9,7 +9,9 @@ import {
   updateReview,
   deleteReview,
   getClinicReviews,
-  getClinicsByLocation
+  getClinicsByLocation,
+  discountOnTreatment,
+  upcomingAppointmentsOFClinic
 } from '../../controllers/clinicController.js';
 
 import { onboardClinic, getClinicWallet, withdrawFromWallet } from '../../controllers/clinicController.js';
@@ -31,6 +33,13 @@ router.post('/create-clinic', createClinic);
 
 // Stripe Connect onboarding for clinic
 router.post('/onboard', onboardClinic);
+
+//create promotions and discounts
+router.post('/discount-on-treatment', discountOnTreatment);
+
+//get upcoming appointments
+router.get('/upcoming-appointments', upcomingAppointmentsOFClinic);
+
 
 // Clinic wallet endpoints
 router.get('/:id/wallet', getClinicWallet);

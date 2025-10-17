@@ -92,10 +92,30 @@ export const createAppointmentPayment = async (req, res) => {
       return res.status(409).json({ success: false, message: 'You already have an appointment at this time' });
     }
 
-    // Calculate amount in cents
-    const amount = process.env.PRICE_IN_CENTS === 'true'
-      ? treatment.price
-      : Math.round((treatment.price || 0) * 100);
+    // Calculate amount in cents, apply treatment discount if present
+    // Support discount stored as `discountPercentage` or `discount` on the treatment document
+    const rawPrice = treatment.price || 0; // could be dollars or cents depending on PRICE_IN_CENTS
+    const discountPercentage = typeof treatment.discountPercentage === 'number'
+      ? treatment.discountPercentage
+      : (typeof treatment.discount === 'number' ? treatment.discount : 0);
+
+    let amount;
+    if (process.env.PRICE_IN_CENTS === 'true') {
+      // price already in cents
+      const baseCents = Number(rawPrice) || 0;
+      if (discountPercentage > 0 && discountPercentage < 100) {
+        amount = Math.round(baseCents * (1 - discountPercentage / 100));
+      } else {
+        amount = baseCents;
+      }
+    } else {
+      // price stored in main currency units (dollars)
+      const baseDollars = Number(rawPrice) || 0;
+      const finalDollars = (discountPercentage > 0 && discountPercentage < 100)
+        ? baseDollars * (1 - discountPercentage / 100)
+        : baseDollars;
+      amount = Math.round(finalDollars * 100);
+    }
 
     // Create PaymentIntent with metadata (appointment details)
     let paymentIntent;
@@ -108,7 +128,8 @@ export const createAppointmentPayment = async (req, res) => {
           clinicId: clinicId.toString(),
           treatmentId: treatmentId.toString(),
           date,
-          time
+          time,
+          discountPercentage: discountPercentage || 0
         },
         automatic_payment_methods: { enabled: true }
       });

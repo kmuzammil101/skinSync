@@ -27,6 +27,10 @@ const treatmentSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  discountPercentage:{
+    type: Number,
+    default: 0
+  },
   treatmentType: {
     type: String,
     enum: [

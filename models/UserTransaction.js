@@ -11,9 +11,13 @@ const userTransactionSchema = new mongoose.Schema({
   paymentIntentId: { type: String },
   stripeChargeId: { type: String },
   metadata: { type: Object },
+  discountPercentage:{
+    type: Number,
+    default: 0
+  },
   // controls whether this transaction should be shown in user wallet listing
   visible: { type: Boolean, default: true },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
 });
 
 export default mongoose.model('UserTransaction', userTransactionSchema);
