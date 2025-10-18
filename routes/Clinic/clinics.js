@@ -28,6 +28,11 @@ router.get('/:id/reviews', getClinicReviews);
 // Protected routes (authentication required)
 router.use(authenticateClinicToken);
 
+// Clinic wallet endpoints
+router.get('/wallet', getClinicWallet);
+router.post('/:id/withdraw', withdrawFromWallet);
+
+
 // Create clinic (admin only - you might want to add role-based auth here)
 router.post('/create-clinic', createClinic);
 
@@ -41,9 +46,6 @@ router.post('/discount-on-treatment', discountOnTreatment);
 router.get('/upcoming-appointments', upcomingAppointmentsOFClinic);
 
 
-// Clinic wallet endpoints
-router.get('/:id/wallet', getClinicWallet);
-router.post('/:id/withdraw', withdrawFromWallet);
 
 
 // Update clinic

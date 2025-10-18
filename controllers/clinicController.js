@@ -562,60 +562,68 @@ export const upcomingAppointmentsOFClinic = async (req, res) => {
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ---------------------------------
 // Get clinic wallet (balance + transactions)
 // ---------------------------------
 export const getClinicWallet = async (req, res) => {
   try {
-    const { id } = req.params; // clinic id
+    const id = req.clinic.clinicId;
     const clinic = await Clinic.findById(id);
-    if (!clinic) return res.status(404).json({ success: false, message: 'Clinic not found' });
+    if (!clinic)
+      return res.status(404).json({ success: false, message: 'Clinic not found' });
 
-    // fetch transactions from our mirror collection
     const { page = 1, limit = 20 } = req.query;
-    const skip = (page - 1) * limit;
+    const pageNum = Math.max(1, parseInt(page));
+    const pageLimit = Math.max(1, Math.min(100, parseInt(limit)));
+    const skip = (pageNum - 1) * pageLimit;
 
-    // Only show transactions intended for clinic wallet visibility
-    const transactions = await ClinicTransaction.find({ clinicId: clinic._id, visible: { $ne: false } })
+    // Base query — only visible transactions of this clinic
+    const txQuery = { clinicId: clinic._id };
+
+    // Fetch paginated transactions
+    const transactions = await ClinicTransaction.find(txQuery)
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(pageLimit)
+      .lean();
+    const total = await ClinicTransaction.countDocuments(txQuery);
 
-    const total = await ClinicTransaction.countDocuments({ clinicId: clinic._id });
+    // ✅ Total earnings (sum of all 'release' type transactions)
+    const totalEarningsAgg = await ClinicTransaction.aggregate([
+      { $match: { clinicId: clinic._id, visible: { $ne: false }, type: 'release' } },
+      { $group: { _id: null, totalEarnings: { $sum: { $ifNull: ['$amount', 0] } } } }
+    ]);
+    const totalEarnings = totalEarningsAgg[0]?.totalEarnings || 0;
 
-    // Optionally, fetch stripe balance for connected account to display real balance (if clinic has connected account)
-    let stripeBalance = null;
-    if (clinic.stripeAccountId) {
-      try {
-        stripeBalance = await stripe.balance.retrieve({}, { stripeAccount: clinic.stripeAccountId });
-      } catch (e) {
-        console.warn('Could not retrieve stripe balance for clinic', e.message);
-      }
-    }
+    // ✅ Today’s earnings (type 'release', filtered by updatedAt)
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
+    const todayEarningsAgg = await ClinicTransaction.aggregate([
+      {
+        $match: {
+          clinicId: clinic._id,
+          visible: { $ne: false },
+          type: 'release',
+          updatedAt: { $gte: startOfToday, $lte: endOfToday }
+        }
+      },
+      { $group: { _id: null, todayEarnings: { $sum: { $ifNull: ['$amount', 0] } } } }
+    ]);
+    const todayEarnings = todayEarningsAgg[0]?.todayEarnings || 0;
+
+    // ✅ Final response
     res.json({
       success: true,
       data: {
         clinicId: clinic._id,
-        walletBalance: clinic.walletBalance || 0,
-        stripeBalance,
+        totalEarnings,
+        todayEarnings,
         transactions,
         pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(total / limit),
+          currentPage: pageNum,
+          totalPages: Math.ceil(total / pageLimit),
           totalTransactions: total
         }
       }
@@ -625,6 +633,8 @@ export const getClinicWallet = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+
 
 
 

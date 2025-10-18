@@ -4,7 +4,7 @@ const clinicTransactionSchema = new mongoose.Schema({
   clinicId: { type: mongoose.Schema.Types.ObjectId, ref: 'Clinic', required: true },
   // Types: hold (platform holds money for clinic), release (admin releases held funds to clinic wallet),
   // credit (clinic wallet credited), debit (clinic wallet debited on withdraw), platform_receipt (platform received payment)
-  type: { type: String, enum: ['credit', 'debit', 'hold', 'release', 'platform_receipt','refunded','cancelled'], required: true },
+  type: { type: String, enum: ['credit', 'debit', 'hold', 'release', 'platform_receipt', 'refunded', 'cancelled'], required: true },
   amount: { type: Number, required: true }, // cents
   currency: { type: String, default: 'usd' },
   description: { type: String },
@@ -14,14 +14,13 @@ const clinicTransactionSchema = new mongoose.Schema({
   stripeChargeId: { type: String },
   stripePayoutId: { type: String },
   metadata: { type: Object },
-  discountPercentage:{
+  discountPercentage: {
     type: Number,
     default: 0
   },
   // controls whether this transaction should be shown in clinic wallet listing
   visible: { type: Boolean, default: true },
   imageForProof: { type: String },
-  createdAt: { type: Date, default: Date.now }
-});
+}, { timestamps: true });
 
 export default mongoose.model('ClinicTransaction', clinicTransactionSchema);
