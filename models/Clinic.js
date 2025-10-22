@@ -27,7 +27,7 @@ const proofOfExpertise = new mongoose.Schema({
     name: { type: String }
 });
 
-const slowDaySchema = new mongoose.Schema({
+const businessHoursSchema = new mongoose.Schema({
     daysOfWeek: {
         type: [String],
     },
@@ -41,6 +41,10 @@ const clinicSchema = new mongoose.Schema({
     name: {
         type: String,
         // required: true
+    },
+    onBoarding:{
+        type: Boolean,
+        default: false
     },
     description: {
         type: String,
@@ -61,11 +65,7 @@ const clinicSchema = new mongoose.Schema({
     website: {
         type: String,
     },
-    businessHours: {
-        type: String,
-        // required: true
-    },
-    slowDays: [slowDaySchema],
+    businessHours: [businessHoursSchema],
     proofOfExpertise: {
         type: [proofOfExpertise],
     },

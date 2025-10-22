@@ -165,83 +165,98 @@ export const createAppointmentPayment = async (req, res) => {
 
 export const getMonthSlots = async (req, res) => {
   try {
-    const { clinicId, year, month } = req.params; // month: 1-12
-    const { slots } = req.query; // optional comma separated times e.g. '09:00,10:00'
+    const { clinicId, year, month } = req.params;
 
-    // Validate inputs
     const y = parseInt(year, 10);
     const m = parseInt(month, 10);
     if (!clinicId || isNaN(y) || isNaN(m) || m < 1 || m > 12) {
       return res.status(400).json({ success: false, message: 'Invalid clinicId/year/month' });
     }
 
-    // Check clinic exists
     const clinic = await Clinic.findById(clinicId);
     if (!clinic) {
       return res.status(404).json({ success: false, message: 'Clinic not found' });
     }
 
-    // Determine total days in month
     const daysInMonth = new Date(y, m, 0).getDate();
 
-    // Prepare default slot list
-    let slotList = [];
-    if (slots) {
-      slotList = slots.split(',').map(s => s.trim()).filter(Boolean);
-    } else {
-      for (let h = 9; h <= 17; h++) {
-        const hh = h.toString().padStart(2, '0');
-        slotList.push(`${hh}:00`);
-      }
-    }
-
-    // Fetch all appointments for this month
     const startDate = new Date(y, m - 1, 1);
     const endDate = new Date(y, m - 1, daysInMonth, 23, 59, 59, 999);
 
     const appts = await Appointment.find({
       clinicId,
       date: { $gte: startDate, $lte: endDate },
-      status: { $in: ['pending', 'confirmed'] }
+      status: { $in: ['pending', 'confirmed', 'paid', 'ongoing'] }
     });
 
-    // Group appointments by local date (YYYY-MM-DD)
-    const apptMap = {};
+    const bookedMap = {};
     appts.forEach(a => {
       const d = new Date(a.date);
-      const key = d.toLocaleDateString('en-CA'); // ✅ keeps it local (no UTC shift)
-      apptMap[key] = apptMap[key] || new Set();
-      apptMap[key].add(a.time);
+      const key = d.toISOString().split('T')[0]; // YYYY-MM-DD
+      if (!bookedMap[key]) bookedMap[key] = new Set();
+      bookedMap[key].add(a.time);
     });
 
-    // Build result array for each day (include weekday name)
+    // ✅ Case-insensitive day matching for businessHours
+    const getHoursForDay = (weekday) => {
+      if (!clinic.businessHours || clinic.businessHours.length === 0) return null;
+      const weekdayLower = weekday.toLowerCase();
+      for (const hours of clinic.businessHours) {
+        if (
+          hours.daysOfWeek &&
+          hours.daysOfWeek.some(d => d.toLowerCase() === weekdayLower)
+        ) {
+          return hours.timeRange;
+        }
+      }
+      return null; // closed if no entry found
+    };
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     const result = [];
-    const daysOfWeek = [];
+
     for (let day = 1; day <= daysInMonth; day++) {
       const dateObj = new Date(y, m - 1, day);
-      const dateKey = dateObj.toLocaleDateString('en-CA'); // ✅ local-safe
-      const bookedSet = apptMap[dateKey] || new Set();
+      if (dateObj < today) continue;
 
-      // Weekday name, e.g. Monday
       const weekday = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
-      daysOfWeek.push(weekday);
+      const timeRange = getHoursForDay(weekday);
 
-      const slotsForDay = slotList.map(t => ({
-        time: t,
-        alreadyBooked: bookedSet.has(t)
-      }));
+      if (!timeRange || !timeRange.start || !timeRange.end) continue;
 
-      result.push({ date: dateKey, day: weekday, slots: slotsForDay });
+      const [startH, startM] = timeRange.start.split(':').map(Number);
+      const [endH, endM] = timeRange.end.split(':').map(Number);
+
+      const slotsForDay = [];
+      const dateKey = dateObj.toISOString().split('T')[0];
+
+      // Generate 1-hour slots
+      for (let h = startH; h < endH; h++) {
+        const time = `${String(h).padStart(2, '0')}:00`;
+        const isBooked = bookedMap[dateKey]?.has(time) || false;
+        slotsForDay.push({
+          time,
+          available: !isBooked
+        });
+      }
+
+      result.push({
+        date: dateKey,
+        day: weekday,
+        slots: slotsForDay
+      });
     }
 
-    // ✅ Sort by date ascending (1st day → last day)
-    result.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    // Send response (include explicit days array for clients that need the list)
-    const daysArray = result.map(d => d.date);
     res.json({
       success: true,
-      data: { year: y, month: m, days: daysInMonth, daysArray, daysOfWeek, result }
+      data: {
+        year: y,
+        month: m,
+        totalDays: result.length,
+        result
+      }
     });
 
   } catch (err) {
@@ -249,6 +264,10 @@ export const getMonthSlots = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+
+
+
 
 
 
@@ -342,25 +361,23 @@ export const getAppointmentById = async (req, res) => {
 export const getAppointmentsByDate = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { date } = req.params;
+    const { date } = req.params; // example: "2025-10-25T00:00:00.000"
     const { status } = req.query;
 
-    const startDate = new Date(date);
-    const endDate = new Date(date);
-    endDate.setDate(endDate.getDate() + 1);
+    // Parse input date to ensure consistent UTC format
+    const inputDate = new Date(date);
+    const formattedDate = new Date(Date.UTC(
+      inputDate.getUTCFullYear(),
+      inputDate.getUTCMonth(),
+      inputDate.getUTCDate()
+    ));
 
     const query = {
       userId,
-      date: {
-        $gte: startDate,
-        $lt: endDate
-      }
+      date: formattedDate
     };
 
-    // Filter by status if provided
-    if (status) {
-      query.status = status;
-    }
+    if (status) query.status = status;
 
     const appointments = await Appointment.find(query)
       .populate('clinicId', 'name address image')
@@ -370,9 +387,9 @@ export const getAppointmentsByDate = async (req, res) => {
     res.json({
       success: true,
       data: {
-        appointments,
-        date: date,
-        totalAppointments: appointments.length
+        date,
+        totalAppointments: appointments.length,
+        appointments
       }
     });
 
@@ -384,6 +401,7 @@ export const getAppointmentsByDate = async (req, res) => {
     });
   }
 };
+
 
 // Update appointment status
 export const updateAppointmentStatus = async (req, res) => {

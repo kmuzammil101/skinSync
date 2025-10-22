@@ -6,16 +6,16 @@ import { addIsSavedToTreatments, addIsSavedToTreatment, checkSavedTreatments } f
 // Create a new treatment
 export const createTreatment = async (req, res) => {
   try {
+    const clinicId = req.clinic.clinicId;
     const {
       name,
       treatmentType,
       subType,
-      clinicId,
       description,
       image,
       beforeImage,
       afterImage,
-      price
+      price,
     } = req.body;
 
     // Validate required fields
@@ -35,6 +35,7 @@ export const createTreatment = async (req, res) => {
       });
     }
 
+    // Create treatment
     const treatment = new Treatment({
       name,
       treatmentType,
@@ -49,13 +50,13 @@ export const createTreatment = async (req, res) => {
 
     await treatment.save();
 
-    // Add treatment to clinic's treatments array
-    // clinic.treatments.push(treatment._id);
+    // Mark clinic as onboarded
+    clinic.onBoarding = true;
     await clinic.save();
 
     res.status(201).json({
       success: true,
-      message: 'Treatment created successfully',
+      message: 'Treatment created successfully and clinic onboarded',
       data: treatment
     });
 

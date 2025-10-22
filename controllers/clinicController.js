@@ -6,6 +6,7 @@ import { addIsSavedToClinics, addIsSavedToClinic } from '../utils/saveUtils.js';
 import Stripe from 'stripe';
 import dotenv from 'dotenv';
 import ClinicTransaction from '../models/ClinicTransaction.js';
+import Promotion from '../models/Promotion.js';
 
 dotenv.config();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-08-16' });
@@ -141,8 +142,10 @@ export const createClinic = async (req, res) => {
       businessHours,
       coordinates,
       proofOfExpertise,
-      slowDays
     } = req.body;
+
+    console.log("Creating clinic with data:");
+
 
     console.log(req.body);
 
@@ -165,7 +168,6 @@ export const createClinic = async (req, res) => {
       businessHours,
       coordinates,
       proofOfExpertise,
-      slowDays,
     });
 
     await clinic.save();
@@ -684,6 +686,205 @@ export const withdrawFromWallet = async (req, res) => {
   } catch (err) {
     console.error('Withdraw error', err);
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+
+
+//home page data of clinic dashboard
+
+export const homePageDataOfClinic = async (req, res) => {
+  try {
+    const clinicId = req.clinic.clinicId;
+
+    // Get clinic data
+    const clinic = await Clinic.findById(clinicId).select('name image ratingStars ratingsCount walletBalance');
+    if (!clinic) {
+      return res.status(404).json({
+        success: false,
+        message: 'Clinic not found'
+      });
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    // 1️⃣ Today's Appointments for Clinic
+    const todaysAppointments = await Appointment.find({
+      clinicId,
+      status: { $in: ['pending', 'confirmed'] },
+      date: { $gte: todayStart, $lte: todayEnd }
+    })
+      .populate('userId', 'name profileImage')
+      .populate('treatmentId', 'name image')
+      .sort({ date: 1, time: 1 });
+
+    // 2️⃣ Upcoming Appointments (After Today, Limit 3)
+    const upcomingAppointments = await Appointment.find({
+      clinicId,
+      status: { $in: ['pending', 'confirmed'] },
+      date: { $gt: todayEnd }
+    })
+      .populate('userId', 'name profileImage')
+      .populate('treatmentId', 'name image')
+      .sort({ date: 1, time: 1 })
+      .limit(3);
+
+    // Combine both
+    const combinedAppointments = [
+      ...todaysAppointments.map(appt => ({ ...appt.toObject(), appointmentType: 'today' })),
+      ...upcomingAppointments.map(appt => ({ ...appt.toObject(), appointmentType: 'upcoming' }))
+    ];
+
+    // Format appointments for frontend
+    const formattedAppointments = combinedAppointments.map(appointment => ({
+      id: appointment._id,
+      patientName: appointment.userId.name,
+      patientImage: appointment.userId.profileImage,
+      treatmentName: appointment.treatmentId.name,
+      treatmentImage: appointment.treatmentId.image,
+      date: appointment.date,
+      time: appointment.time,
+      status: appointment.status,
+      type: appointment.appointmentType
+    }));
+
+    // 3️⃣ Active Promotions by Clinic
+    const activePromotions = await Promotion.find({
+      clinicId,
+      isActive: true,
+      validTill: { $gte: new Date() }
+    })
+      .populate('treatmentId', 'name image')
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    const formattedPromotions = activePromotions.map(promotion => ({
+      id: promotion._id,
+      title: promotion.title,
+      treatmentName: promotion.treatmentId.name,
+      treatmentImage: promotion.treatmentId.image,
+      discountType: promotion.discountType,
+      discountValue: promotion.discountValue,
+      validTill: promotion.validTill,
+      image: promotion.image
+    }));
+
+    // 4️⃣ Clinic Dashboard Stats
+    const totalAppointments = await Appointment.countDocuments({ clinicId });
+    const pendingAppointments = await Appointment.countDocuments({ clinicId, status: 'pending' });
+    const confirmedAppointments = await Appointment.countDocuments({ clinicId, status: 'confirmed' });
+
+    // 5️⃣ Reminder (Next Appointment in 24h)
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const nextReminders = await Appointment.find({
+      clinicId,
+      status: 'confirmed',
+      date: { $gte: new Date(), $lte: tomorrow }
+    })
+      .populate('userId', 'name profileImage')
+      .populate('treatmentId', 'name image')
+      .limit(1);
+
+    let reminder = null;
+    if (nextReminders.length > 0) {
+      const appointment = nextReminders[0];
+      reminder = {
+        id: appointment._id,
+        patientName: appointment.userId.name,
+        treatmentName: appointment.treatmentId.name,
+        treatmentImage: appointment.treatmentId.image,
+        date: appointment.date,
+        time: appointment.time
+      };
+    }
+
+    // 6️⃣ Response
+    res.json({
+      success: true,
+      data: {
+        clinic: {
+          name: clinic.name,
+          image: clinic.image,
+          rating: clinic.ratingStars,
+          reviews: clinic.ratingsCount,
+          walletBalance: clinic.walletBalance
+        },
+        stats: {
+          totalAppointments,
+          pendingAppointments,
+          confirmedAppointments
+        },
+        upcomingAppointments: {
+          title: "Your Appointments",
+          appointments: formattedAppointments
+        },
+        promotions: {
+          title: "Active Promotions",
+          promotions: formattedPromotions
+        },
+        reminder
+      }
+    });
+
+  } catch (error) {
+    console.error('Clinic Home Page Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+
+
+export const getAppointmentsOfClinicByDate = async (req, res) => {
+  try {
+    const clinicId = req.clinic.clinicId;
+    const { date } = req.params; // example: "2025-10-25T00:00:00.000"
+    const { status } = req.query;
+
+    // Parse input date to ensure consistent UTC format
+    const inputDate = new Date(date);
+    const formattedDate = new Date(Date.UTC(
+      inputDate.getUTCFullYear(),
+      inputDate.getUTCMonth(),
+      inputDate.getUTCDate()
+    ));
+
+    const query = {
+      clinicId,
+      date: formattedDate
+    };
+
+    if (status) query.status = status;
+
+    const appointments = await Appointment.find(query)
+      .populate('clinicId', 'name address image')
+      .populate('treatmentId', 'name price image')
+      .sort({ time: 1 });
+
+    res.json({
+      success: true,
+      data: {
+        date,
+        totalAppointments: appointments.length,
+        appointments
+      }
+    });
+
+  } catch (error) {
+    console.error('Get appointments by date error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
   }
 };
 

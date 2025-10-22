@@ -12,27 +12,23 @@ import {
   getTreatmentSubtype,
   getRecommendedTreatments
 } from '../controllers/treatmentController.js';
+import { authenticateClinicToken } from '../middleware/clinicAuth.js';
 
 const router = express.Router();
+
+router.get('/get-treatment-subType', getTreatmentSubtype)
+router.get('/get-treatment-type', getTreatmentType)
+router.post('/create-treatment', authenticateClinicToken, createTreatment);
 
 // All routes require authentication
 router.use(authenticateToken);
 
-// Create treatment (admin only - you might want to add role-based auth)
-router.post('/create-treatment', createTreatment);
 
 // Get all treatments
 router.get('/get-treatments', getTreatments);
 
-//get all types of treatment
-router.get('/get-treatment-type',getTreatmentType)
-
-
 // Get treatment by ID
 router.get('/get-treatment-by-id/:id', getTreatmentById);
-
-//get Treatment subTypes
-router.get('/get-treatment-subType',getTreatmentSubtype)
 
 
 // Get treatments by type

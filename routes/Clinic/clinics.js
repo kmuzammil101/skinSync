@@ -11,7 +11,9 @@ import {
   getClinicReviews,
   getClinicsByLocation,
   discountOnTreatment,
-  upcomingAppointmentsOFClinic
+  upcomingAppointmentsOFClinic,
+  homePageDataOfClinic,
+  getAppointmentsOfClinicByDate
 } from '../../controllers/clinicController.js';
 
 import { onboardClinic, getClinicWallet, withdrawFromWallet } from '../../controllers/clinicController.js';
@@ -33,14 +35,19 @@ router.get('/wallet', getClinicWallet);
 router.post('/:id/withdraw', withdrawFromWallet);
 
 
+//home page of clinic dashboard
+router.get('/home',homePageDataOfClinic);
+
+router.get('/date/:date', getAppointmentsOfClinicByDate);
+
 // Create clinic (admin only - you might want to add role-based auth here)
 router.post('/create-clinic', createClinic);
 
 // Stripe Connect onboarding for clinic
 router.post('/onboard', onboardClinic);
 
-//create promotions and discounts
-router.post('/discount-on-treatment', discountOnTreatment);
+//update promotions and discounts
+router.patch('/discount-on-treatment', discountOnTreatment);
 
 //get upcoming appointments
 router.get('/upcoming-appointments', upcomingAppointmentsOFClinic);
