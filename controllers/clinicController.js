@@ -7,6 +7,7 @@ import Stripe from 'stripe';
 import dotenv from 'dotenv';
 import ClinicTransaction from '../models/ClinicTransaction.js';
 import Promotion from '../models/Promotion.js';
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-08-16' });
@@ -128,6 +129,12 @@ export const getClinicById = async (req, res) => {
 };
 
 
+const generateToken = (clinicId) => {
+  return jwt.sign({ clinicId }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRE || '7d',
+  });
+};
+
 // Create clinic
 export const createClinic = async (req, res) => {
   try {
@@ -145,8 +152,6 @@ export const createClinic = async (req, res) => {
     } = req.body;
 
     console.log("Creating clinic with data:");
-
-
     console.log(req.body);
 
     // Validate required fields
@@ -157,6 +162,7 @@ export const createClinic = async (req, res) => {
       });
     }
 
+    // Create new clinic
     const clinic = new Clinic({
       name,
       description,
@@ -170,13 +176,23 @@ export const createClinic = async (req, res) => {
       proofOfExpertise,
     });
 
+    clinic.isClinicCreated = true;
+
     await clinic.save();
+
+
+    // Generate token and attach it to the clinic object
+    const token = generateToken(clinic._id);
+    const clinicWithToken = {
+      ...clinic.toObject(),
+      token,
+    };
 
     return res.status(201).json({
       success: true,
       message: 'Clinic created successfully',
       data: {
-        clinic, // wrapped inside `data.clinic`
+        clinic: clinicWithToken, // token included inside clinic object
       },
     });
   } catch (error) {
@@ -187,6 +203,7 @@ export const createClinic = async (req, res) => {
     });
   }
 };
+
 
 
 // Update clinic

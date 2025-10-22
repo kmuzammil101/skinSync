@@ -42,7 +42,11 @@ const clinicSchema = new mongoose.Schema({
         type: String,
         // required: true
     },
-    onBoarding:{
+    onBoarding: {
+        type: Boolean,
+        default: false
+    },
+    isClinicCreated: {
         type: Boolean,
         default: false
     },
@@ -90,7 +94,8 @@ const clinicSchema = new mongoose.Schema({
     },
     email: {
         type: String,
-        required: true
+        required: true,
+        unique: true
     },
     // Stripe Connect fields
     stripeAccountId: { type: String }, // connected account id (acct_...)
