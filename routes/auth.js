@@ -1,6 +1,7 @@
 import express from 'express';
 import { validate } from '../middleware/validation.js';
 import { imageUpload } from '../middleware/upload.js';
+import { uploadToS3 } from "../utils/s3.js";
 import {
   sendOTPSchema,
   verifyOTPSchema,
@@ -14,6 +15,7 @@ import {
   resendOTP,
   socialLogin
 } from '../controllers/authController.js';
+
 
 const router = express.Router();
 
@@ -62,38 +64,42 @@ router.post('/social-login',
 );
 
 // Upload single image - returns URL
-router.post('/upload/single',
-  imageUpload.single('image'),
-  (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ success: false, message: 'No image uploaded' });
-      }
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
-      const url = `${baseUrl}/uploads/${req.file.filename}`;
-      return res.json({ success: true, data: { url } });
-    } catch (error) {
-      return res.status(500).json({ success: false, message: 'Upload failed' });
+router.post("/upload/single", imageUpload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No image uploaded" });
     }
-  }
-);
 
-// Upload multiple images - returns URLs
-router.post('/upload/multiple',
-  imageUpload.multiple('images', 10),
-  (req, res) => {
-    try {
-      const files = req.files || [];
-      if (!files.length) {
-        return res.status(400).json({ success: false, message: 'No images uploaded' });
-      }
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
-      const urls = files.map(f => `${baseUrl}/uploads/${f.filename}`);
-      return res.json({ success: true, data: { urls } });
-    } catch (error) {
-      return res.status(500).json({ success: false, message: 'Upload failed' });
-    }
+    const fileName = `${Date.now()}-${req.file.originalname}`;
+    const url = await uploadToS3(req.file.buffer, fileName, req.file.mimetype);
+
+    return res.json({ success: true, data: { url } });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Upload failed" });
   }
-);
+});
+
+// ✅ Upload multiple images
+router.post("/upload/multiple", imageUpload.multiple("images", 10), async (req, res) => {
+  try {
+    const files = req.files || [];
+    if (!files.length) {
+      return res.status(400).json({ success: false, message: "No images uploaded" });
+    }
+
+    const urls = [];
+    for (const file of files) {
+      const fileName = `${Date.now()}-${file.originalname}`;
+      const url = await uploadToS3(file.buffer, fileName, file.mimetype);
+      urls.push(url);
+    }
+
+    return res.json({ success: true, data: { urls } });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Upload failed" });
+  }
+});
 
 export default router;
