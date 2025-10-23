@@ -138,71 +138,79 @@ const generateToken = (clinicId) => {
 // Create clinic
 export const createClinic = async (req, res) => {
   try {
+    const clinicId = req.clinic.clinicId; // ✅ Extract clinic ID from authenticated clinic (middleware)
     const {
       name,
       description,
       image,
       address,
       phone,
-      email,
       website,
       businessHours,
       coordinates,
       proofOfExpertise,
     } = req.body;
 
-    console.log("Creating clinic with data:");
+    console.log("Updating clinic with data:");
     console.log(req.body);
 
     // Validate required fields
-    if (!name || !description || !image || !address || !phone || !email) {
+    if (!name || !description || !image || !address || !phone) {
       return res.status(400).json({
         success: false,
-        message: 'name, description, image, address, phone, and email are required',
+        message: 'name, description, image, address, and phone are required',
       });
     }
 
-    // Create new clinic
-    const clinic = new Clinic({
-      name,
-      description,
-      image,
-      address,
-      phone,
-      email,
-      website,
-      businessHours,
-      coordinates,
-      proofOfExpertise,
-    });
+    // Update existing clinic
+    const updatedClinic = await Clinic.findByIdAndUpdate(
+      clinicId,
+      {
+        name,
+        description,
+        image,
+        address,
+        phone,
+        website,
+        businessHours,
+        coordinates,
+        proofOfExpertise,
+        isClinicCreated: true,
+      },
+      { new: true } // Return the updated document
+    );
 
-    clinic.isClinicCreated = true;
-
-    await clinic.save();
-
+    if (!updatedClinic) {
+      return res.status(404).json({
+        success: false,
+        message: 'Clinic not found',
+      });
+    }
 
     // Generate token and attach it to the clinic object
-    const token = generateToken(clinic._id);
+    const token = generateToken(updatedClinic._id);
     const clinicWithToken = {
-      ...clinic.toObject(),
+      ...updatedClinic.toObject(),
       token,
     };
 
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
-      message: 'Clinic created successfully',
+      message: 'Clinic updated successfully',
       data: {
         clinic: clinicWithToken, // token included inside clinic object
       },
     });
   } catch (error) {
-    console.error('Create clinic error:', error);
+    console.error('Update clinic error:', error);
     return res.status(500).json({
       success: false,
       message: 'Internal server error',
     });
   }
 };
+
+
 
 
 
