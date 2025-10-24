@@ -6,20 +6,34 @@ import {
   sendOTPSchema,
   verifyOTPSchema,
   completeProfileSchema,
-  socialLoginSchema
+  socialLoginSchema,
+  signupSchema
 } from '../schemas/authSchemas.js';
 import {
   sendOTP,
   verifyOTP,
   completeProfile,
   resendOTP,
-  socialLogin
+  socialLogin,
+  signupController,
+  loginController,
+  sendForgotPasswordOTP,
+  verifyForgotPasswordOTP,
+  resetPassword,
+  resendForgotPasswordOTP
 } from '../controllers/authController.js';
 
 
 const router = express.Router();
 
-// Routes for passwordless authentication
+router.post('/signup',
+  validate(signupSchema),
+  signupController
+);
+
+router.post('/login',
+  loginController
+)
 
 // Send OTP for registration/login
 router.post('/send-otp', 
@@ -62,6 +76,14 @@ router.post('/social-login',
   validate(socialLoginSchema),
   socialLogin
 );
+
+
+//forget password
+
+router.post('/forget-password/send-otp',sendForgotPasswordOTP)
+router.post('/forget-password/verify-otp',verifyForgotPasswordOTP)
+router.post('/forget-password/resend-otp',resendForgotPasswordOTP)
+router.post('/forget-password/reset',resetPassword)
 
 // Upload single image - returns URL
 router.post("/upload/single", imageUpload.single("image"), async (req, res) => {

@@ -33,7 +33,8 @@ const appointmentSchema = new mongoose.Schema({
     amount: { type: Number }, // price in smallest currency unit (e.g., cents)
     currency: { type: String, default: 'usd' },
     stripePaymentIntentId: { type: String },
-    paymentStatus: { type: String, enum: ['unpaid', 'processing', 'paid', 'failed', 'refunded'], default: 'unpaid' }
+    paymentStatus: { type: String, enum: ['unpaid', 'processing', 'paid', 'failed', 'refunded'], default: 'unpaid' },
+    stripeChargeId: { type: String }
 }, {
     timestamps: true
 });

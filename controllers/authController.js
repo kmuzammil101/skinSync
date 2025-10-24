@@ -2,6 +2,8 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import VerificationCode from '../models/VerificationCode.js';
 import { sendVerificationEmail, sendWelcomeEmail } from '../utils/emailService.js';
+import { sendSMS } from '../utils/phoneService.js';
+import bcrypt from 'bcryptjs';
 
 // Generate JWT Token
 const generateToken = (userId) => {
@@ -10,22 +12,150 @@ const generateToken = (userId) => {
   });
 };
 
+
+export const signupController = async (req, res) => {
+  try {
+    const { name, email, password, phone } = req.body;
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'User with this email already exists'
+      });
+    }
+
+    // ✅ Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create new user with hashed password
+    const newUser = new User({
+      name,
+      email,
+      password: hashedPassword,
+      phone,
+      isEmailVerified: false
+    });
+
+    await newUser.save();
+
+    // Send welcome email
+    // await sendWelcomeEmail(email, name);
+
+    res.status(201).json({
+      success: true,
+      message: 'User registered successfully',
+      data: {
+        user: newUser.toJSON()
+      }
+    });
+
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+
+export const loginController = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required'
+      });
+    }
+
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    // Compare password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    // Generate token
+    const token = generateToken(user._id);
+
+    // Update last login timestamp
+    user.lastLogin = new Date();
+    await user.save();
+
+    // Remove password from response
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    res.status(200).json({
+      success: true,
+      message: 'Login successful',
+      data: {
+        user: {
+          ...userResponse,
+          token
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
 // Send OTP for registration/login
 export const sendOTP = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { type, email, phone } = req.body;
+
+    // Validate input
+    if (!type || !['email_verification', 'phone_verification'].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification type. Must be email_verification or phone_verification.'
+      });
+    }
+
+    const target = type === 'email_verification' ? email : phone;
+    if (!target) {
+      return res.status(400).json({
+        success: false,
+        message: type === 'email_verification'
+          ? 'Email is required'
+          : 'Phone number is required'
+      });
+    }
 
     // Generate OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
     // Save or update verification code
     await VerificationCode.findOneAndUpdate(
-      { email, type: 'email_verification' },
+      { [type === 'email_verification' ? 'email' : 'phone']: target, type },
       {
-        email,
+        [type === 'email_verification' ? 'email' : 'phone']: target,
         // code: otp,
-        code: '123456',
-        type: 'email_verification',
+        code: 123456, // For testing purposes
+        type,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
         attempts: 0,
         isUsed: false
@@ -33,15 +163,20 @@ export const sendOTP = async (req, res) => {
       { upsert: true, new: true }
     );
 
-    // Send OTP email
-    // await sendVerificationEmail(email, otp);
+    // Send OTP based on type
+    // if (type === 'email_verification') {
+    //   await sendVerificationEmail(target, otp);
+    // } else if (type === 'phone_verification') {
+    //   await sendSMS(target, `Your OTP code is ${otp}`);
+    // }
 
     res.json({
       success: true,
-      message: 'OTP sent successfully to your email',
+      message: `OTP sent successfully to your ${type === 'email_verification' ? 'email' : 'phone'}`,
       data: {
-        email,
-        expiresIn: 600 // 10 minutes in seconds
+        type,
+        target,
+        expiresIn: 600 // 10 minutes
       }
     });
 
@@ -148,15 +283,33 @@ export const sendOTP = async (req, res) => {
 
 export const verifyOTP = async (req, res) => {
   try {
-    const { email, code } = req.body;
-    console.log('Verifying OTP for email:', email, 'code:', code);
-    // Find verification code (ignore isUsed, attempts)
-    const verificationRecord = await VerificationCode.findOne({
-      email,
+    const { type, email, phone, code } = req.body;
+    const target = type === 'email_verification' ? email : phone;
+
+    console.log(`Verifying OTP for ${type}:`, target, 'code:', code);
+
+    if (!type || !['email_verification', 'phone_verification'].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification type. Must be email_verification or phone_verification.'
+      });
+    }
+
+    if (!target || !code) {
+      return res.status(400).json({
+        success: false,
+        message: 'Target and OTP code are required'
+      });
+    }
+
+    // Check OTP validity
+    const query = {
+      [type === 'email_verification' ? 'email' : 'phone']: target,
       code,
-      type: 'email_verification',
+      type,
       expiresAt: { $gt: new Date() }
-    });
+    };
+    const verificationRecord = await VerificationCode.findOne(query);
 
     if (!verificationRecord) {
       return res.status(400).json({
@@ -165,21 +318,26 @@ export const verifyOTP = async (req, res) => {
       });
     }
 
-    // ✅ Do NOT check attempts
-    // ✅ Do NOT mark as used
-
     // Check if user exists
-    let user = await User.findOne({ email });
+    const userQuery = type === 'email_verification' ? { email: target } : { phone: target };
+    const existingUser = await User.findOne(userQuery);
 
-    if (!user) {
-      // New user - create with minimal data (ensure required name present)
-      const fallbackName = (email && email.split('@')[0]) || 'User';
-      user = new User({
-        email,
-        name: fallbackName,
-        isEmailVerified: true
-      });
-      await user.save();
+    if (!existingUser) {
+      // 🆕 Create new user
+      const fallbackName = (target && target.split('@')[0]) || 'User';
+      const newUser = await User.findOneAndUpdate(
+        userQuery,
+        {
+          $setOnInsert: {
+            ...userQuery,
+            name: fallbackName,
+            isEmailVerified: type === 'email_verification',
+            isPhoneVerified: type === 'phone_verification',
+            createdAt: new Date(),
+          }
+        },
+        { upsert: true, new: true }
+      );
 
       return res.json({
         success: true,
@@ -188,34 +346,42 @@ export const verifyOTP = async (req, res) => {
           isNewUser: true,
           requiresProfileCompletion: true,
           user: {
-            ...user.toJSON(),
-            token: generateToken(user._id) // embed token in user object
+            ...newUser.toJSON(),
+            token: generateToken(newUser._id)
           }
         }
       });
     } else {
-      // Existing user - update verification status and last login
-      user.isEmailVerified = true;
-      if (!user.name) {
-        user.name = (email && email.split('@')[0]) || 'User';
-      }
-      user.lastLogin = new Date();
-      await user.save();
-      console.log('Existing user logged in:', user.email);
+      // ✅ Existing user: update verification + last login
+      const updatedUser = await User.findOneAndUpdate(
+        userQuery,
+        {
+          $set: {
+            ...(type === 'email_verification'
+              ? { isEmailVerified: true }
+              : { isPhoneVerified: true }),
+            lastLogin: new Date(),
+            name: existingUser.name || ((target && target.split('@')[0]) || 'User')
+          }
+        },
+        { new: true }
+      );
+
+      console.log('Existing user logged in:', updatedUser.email || updatedUser.phone);
+
       return res.json({
         success: true,
         message: 'Login successful',
         data: {
           isNewUser: false,
-          requiresProfileCompletion: !user.name,
+          requiresProfileCompletion: !updatedUser.name,
           user: {
-            ...user.toJSON(),
-            token: generateToken(user._id) // embed token in user object
+            ...updatedUser.toJSON(),
+            token: generateToken(updatedUser._id)
           }
         }
       });
     }
-
   } catch (error) {
     console.error('Verify OTP error:', error);
     res.status(500).json({
@@ -224,6 +390,7 @@ export const verifyOTP = async (req, res) => {
     });
   }
 };
+
 
 
 // Complete user profile (for new users after OTP verification)
@@ -294,7 +461,7 @@ export const completeProfile = async (req, res) => {
     userObj.token = token;
 
     // Convert arrays into key-value pairs
-    const convertToKeyValue = (arr) => 
+    const convertToKeyValue = (arr) =>
       Array.isArray(arr) ? arr.map((item, index) => ({ key: index, value: item })) : arr;
 
     userObj.skintype = convertToKeyValue(userObj.skintype);
@@ -322,43 +489,68 @@ export const completeProfile = async (req, res) => {
 // Resend OTP
 export const resendOTP = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, phone, type } = req.body;
 
-    // Check if there's a recent OTP request (prevent spam)
+    if (!type) {
+      return res.status(400).json({
+        success: false,
+        message: 'OTP type is required.'
+      });
+    }
+
+    if (!email && !phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email or phone number is required.'
+      });
+    }
+
+    const identifier = email || phone;
+
+    // Prevent spam: only one OTP request per minute
     const recentOTP = await VerificationCode.findOne({
-      email,
-      type: 'email_verification',
-      createdAt: { $gt: new Date(Date.now() - 60 * 1000) } // 1 minute ago
+      [email ? 'email' : 'phone']: identifier,
+      type,
+      createdAt: { $gt: new Date(Date.now() - 60 * 1000) } // within last 1 minute
     });
 
     if (recentOTP) {
       return res.status(429).json({
         success: false,
-        message: 'Please wait before requesting another OTP'
+        message: 'Please wait 1 minute before requesting another OTP.'
       });
     }
 
-    // Generate new OTP
+    // Generate OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Save verification code
-    await VerificationCode.create({
-      email,
-      code: otp,
-      type: 'email_verification',
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
-      attempts: 0,
-      isUsed: false
-    });
+    // Save OTP
+    await VerificationCode.findOneAndUpdate(
+      { [email ? 'email' : 'phone']: identifier, type },
+      {
+        [email ? 'email' : 'phone']: identifier,
+        code: 123456, // 🔧 replace with `otp` in production
+        type,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        attempts: 0,
+        isUsed: false
+      },
+      { upsert: true, new: true }
+    );
 
-    // Send OTP email
-    await sendVerificationEmail(email, otp);
+    // Send OTP (email or SMS)
+    // if (email) {
+    //   await sendVerificationEmail(email, otp);
+    // } else {
+    //   await sendSMS(phone, `Your OTP code is ${otp}`);
+    // }
 
     res.json({
       success: true,
-      message: 'OTP resent successfully',
+      message: `OTP resent successfully to your ${email ? 'email' : 'phone number'}.`,
       data: {
-        email,
+        identifier,
+        type,
         expiresIn: 600 // 10 minutes in seconds
       }
     });
@@ -371,6 +563,256 @@ export const resendOTP = async (req, res) => {
     });
   }
 };
+
+
+//forget password
+export const sendForgotPasswordOTP = async (req, res) => {
+  try {
+    const { email, phone } = req.body;
+
+    if (!email && !phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email or phone number is required.'
+      });
+    }
+
+    const identifier = email || phone;
+    const type = 'password_reset';
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresIn = 10 * 60 * 1000; // 10 minutes
+
+    // Check if user/clinic exists
+    const user = await User.findOne({ $or: [{ email }, { phoneNo: phone }] });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Account not found.' });
+    }
+
+    // Upsert verification record
+    await VerificationCode.findOneAndUpdate(
+      { email: identifier, type },
+      {
+        email: identifier,
+        // code: otp,
+        code: 123456, // For testing purposes
+        type,
+        expiresAt: new Date(Date.now() + expiresIn),
+        attempts: 0,
+        isUsed: false
+      },
+      { upsert: true, new: true }
+    );
+
+    // Send OTP via email or SMS
+    // if (email) {
+    //   await sendVerificationEmail(email, otp);
+    // } else {
+    //   await sendSMS(phone, `Your password reset OTP is ${otp}`);
+    // }
+
+    res.json({
+      success: true,
+      message: `OTP sent to your ${email ? 'email' : 'phone number'}`,
+      expiresIn: expiresIn / 1000
+    });
+  } catch (error) {
+    console.error('Send forgot password OTP error:', error);
+    res.status(500).json({ success: false, message: 'Failed to send OTP.' });
+  }
+};
+
+
+
+export const verifyForgotPasswordOTP = async (req, res) => {
+  try {
+    const { email, phone, code } = req.body;
+
+    if ((!email && !phone) || !code) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email or phone and OTP are required.'
+      });
+    }
+
+    const identifier = email || phone;
+    const type = 'password_reset';
+
+    const record = await VerificationCode.findOne({
+      email: identifier,
+      code: code.toString(),
+      type,
+      expiresAt: { $gt: new Date() },
+      isUsed: false
+    });
+
+    if (!record) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+    }
+
+    const user = await User.findOne({ $or: [{ email }, { phoneNo: phone }] });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Account not found.' });
+    }
+
+    // Mark OTP used
+    record.isUsed = true;
+    await record.save();
+
+    // Generate a temporary reset token (valid 15 min)
+    const resetToken = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+
+    res.json({
+      success: true,
+      message: 'OTP verified. Use this token to reset your password.',
+      data: { resetToken }
+    });
+  } catch (error) {
+    console.error('Verify forgot password OTP error:', error);
+    res.status(500).json({ success: false, message: 'Server error.' });
+  }
+};
+
+
+export const resendForgotPasswordOTP = async (req, res) => {
+  try {
+    const { email, phone } = req.body;
+
+    // 1️⃣ Validate input
+    if (!email && !phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email or phone number is required.'
+      });
+    }
+
+    const identifier = email || phone;
+    const type = 'password_reset';
+    const expiresIn = 10 * 60 * 1000; // 10 minutes
+
+    // 2️⃣ Prevent spam - allow only one OTP per minute
+    const recentOTP = await VerificationCode.findOne({
+      [email ? 'email' : 'phone']: identifier,
+      type,
+      createdAt: { $gt: new Date(Date.now() - 60 * 1000) } // within last 1 min
+    });
+
+    if (recentOTP) {
+      return res.status(429).json({
+        success: false,
+        message: 'Please wait 1 minute before requesting another OTP.'
+      });
+    }
+
+    // 3️⃣ Ensure user exists
+    const user = await User.findOne({ $or: [{ email }, { phone }] });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Account not found.'
+      });
+    }
+
+    // 4️⃣ Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // 5️⃣ Save or update OTP record
+    await VerificationCode.findOneAndUpdate(
+      { [email ? 'email' : 'phone']: identifier, type },
+      {
+        [email ? 'email' : 'phone']: identifier,
+        code: 123456, // 🔧 replace with `otp` in production
+        type,
+        expiresAt: new Date(Date.now() + expiresIn),
+        attempts: 0,
+        isUsed: false
+      },
+      { upsert: true, new: true }
+    );
+
+    // 6️⃣ Send OTP via correct channel
+    // if (email) {
+    //   await sendVerificationEmail(email, otp);
+    // } else {
+    //   await sendSMS(phone, `Your password reset OTP is ${otp}`);
+    // }
+
+    // 7️⃣ Respond
+    res.json({
+      success: true,
+      message: `A new OTP has been sent to your ${email ? 'email' : 'phone number'}.`,
+      data: {
+        identifier,
+        expiresIn: expiresIn / 1000 // seconds
+      }
+    });
+  } catch (error) {
+    console.error('Resend Forgot Password OTP error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to resend OTP. Please try again.'
+    });
+  }
+};
+
+
+
+export const resetPassword = async (req, res) => {
+  try {
+    const { resetToken, newPassword } = req.body;
+
+    if (!resetToken || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reset token and new password are required.'
+      });
+    }
+
+    // Verify JWT token
+    const decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
+    const userId = decoded.userId;
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    // Update password directly
+    const user = await User.findOneAndUpdate(
+      { _id: userId },
+      { password: hashedPassword },
+      { new: true } // return updated doc (optional)
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Password reset successful.'
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    if (error.name === 'TokenExpiredError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Reset token expired.'
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reset password.'
+    });
+  }
+};
+
+
+
+
+
 
 // Social login (Google/Apple)
 export const socialLogin = async (req, res) => {

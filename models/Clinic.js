@@ -50,6 +50,10 @@ const clinicSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    isClinicRegister:{
+        type: Boolean,
+        default: false
+    },
     description: {
         type: String,
         // required: true
@@ -92,10 +96,17 @@ const clinicSchema = new mongoose.Schema({
         type: String,
         // required: true
     },
+    password: {
+        type: String,
+        required: true
+    },
     email: {
         type: String,
-        required: true,
-        unique: true
+        required: [true, 'Email is required'],
+        unique: true,
+        lowercase: true,
+        trim: true,
+        match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
     },
     // Stripe Connect fields
     stripeAccountId: { type: String }, // connected account id (acct_...)
