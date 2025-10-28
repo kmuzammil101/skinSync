@@ -32,7 +32,7 @@ export const signupSchema = z.object({
     .regex(/[@$!%*?&#]/, 'Password must contain at least one special character'),
 
   phone: z.string()
-    .regex(/^[\+]?[1-9][\d]{7,14}$/, 'Please provide a valid phone number'),
+    .regex(/^[\+]?[1-9][\d]{7,14}$/, 'Please provide a valid phone number')
 });
 
 

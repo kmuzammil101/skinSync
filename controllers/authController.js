@@ -14,11 +14,13 @@ const generateToken = (userId) => {
 };
 
 
+
+
 export const signupController = async (req, res) => {
   try {
     const { name, email, password, phone } = req.body;
 
-    // Check if user already exists
+    // 🔹 1. Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({
@@ -27,11 +29,11 @@ export const signupController = async (req, res) => {
       });
     }
 
-    // ✅ Hash password
+    // 🔹 2. Hash password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create new user with hashed password
+    // 🔹 3. Create new user
     const newUser = new User({
       name,
       email,
@@ -42,25 +44,47 @@ export const signupController = async (req, res) => {
 
     await newUser.save();
 
-    // Send welcome email
-    // await sendWelcomeEmail(email, name);
+    // 🔹 4. Generate OTP for email verification
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    await VerificationCode.findOneAndUpdate(
+      { email, type: 'email_verification' },
+      {
+        email,
+        code: 123456, // Use otp in production
+        type: 'email_verification',
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        attempts: 0,
+        isUsed: false
+      },
+      { upsert: true, new: true }
+    );
+
+    // 🔹 5. Optionally send the OTP
+    // await sendVerificationEmail(email, otp);
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: 'User registered successfully. OTP sent to your email for verification.',
       data: {
-        user: newUser.toJSON()
+        user: newUser.toJSON(),
+        otpInfo: {
+          type: 'email_verification',
+          email,
+          expiresIn: 600 // 10 minutes
+        }
       }
     });
 
   } catch (error) {
-    console.error('Signup error:', error);
+    console.error('Signup with OTP error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'
     });
   }
 };
+
 
 
 export const loginController = async (req, res) => {
@@ -84,20 +108,44 @@ export const loginController = async (req, res) => {
       });
     }
 
-    // 🚫 Check email verification status
-    if (!user.isEmailVerified) {
-      return res.status(403).json({
-        success: false,
-        message: 'Please verify your email before logging in.',
-      });
-    }
-
     // 🔑 Compare password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({
         success: false,
         message: 'Invalid email or password',
+      });
+    }
+
+    // 🚫 If email not verified → Send OTP and stop login
+    if (!user.isEmailVerified) {
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // Save or update verification code
+      await VerificationCode.findOneAndUpdate(
+        { email: user.email, type: 'email_verification' },
+        {
+          email: user.email,
+          code: 123456, // replace with otp in production
+          type: 'email_verification',
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+          attempts: 0,
+          isUsed: false,
+        },
+        { upsert: true, new: true }
+      );
+
+      // Send OTP via email
+      // await sendVerificationEmail(user.email, otp);
+
+      return res.status(403).json({
+        success: false,
+        message: 'Email not verified. OTP has been sent to your email for verification.',
+        data: {
+          type: 'email_verification',
+          target: user.email,
+          expiresIn: 600, // 10 minutes
+        },
       });
     }
 
@@ -112,10 +160,12 @@ export const loginController = async (req, res) => {
     const userResponse = user.toObject();
     delete userResponse.password;
 
+    // 📱 Send login notification
     sendNotificationToDeviceAndSave(user._id, user.deviceToken, {
       title: 'Login successful',
       message: 'You have logged in successfully',
     });
+
     return res.status(200).json({
       success: true,
       message: 'Login successful',
@@ -123,10 +173,11 @@ export const loginController = async (req, res) => {
         user: {
           ...userResponse,
           token,
-          isOnboardingCompleted: !!user.isOnboardingCompleted, // ✅ Added field
+          isOnboardingCompleted: !!user.isOnboardingCompleted,
         },
       },
     });
+
   } catch (error) {
     console.error('Login error:', error);
     return res.status(500).json({
