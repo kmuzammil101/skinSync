@@ -235,50 +235,89 @@ export const clinicSignup = async (req, res) => {
   try {
     const { name, email, password, phone } = req.body;
 
+    // 🔹 1. Validate required fields
     if (!name || !email || !password || !phone) {
       return res.status(400).json({
         success: false,
-        message: 'Name, email, password, and phone are required'
+        message: 'Name, email, password, and phone are required',
       });
     }
 
-    // Check if clinic already exists
+    // 🔹 2. Check if clinic already exists
     const existingClinic = await Clinic.findOne({ email });
     if (existingClinic) {
       return res.status(400).json({
         success: false,
-        message: 'Clinic already registered with this email'
+        message: 'Clinic already registered with this email',
       });
     }
 
-    // Hash password
+    // 🔹 3. Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create clinic
+    // 🔹 4. Create new clinic
     const newClinic = await Clinic.create({
       name,
       email,
       phone,
       password: hashedPassword,
-      isClinicRegister: true
+      isClinicRegister: true,
+      isClinicEmailVerified: false,
     });
 
-    // Send response
+    // 🔹 5. Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresIn = 10 * 60 * 1000; // 10 minutes
+
+    // 🔹 6. Determine verification type (email first)
+    const type = email
+      ? 'clinic_email_verification'
+      : 'phone_verification';
+    const identifier = email || phone;
+
+    // 🔹 7. Save / Update OTP in VerificationCode collection
+    await VerificationCode.findOneAndUpdate(
+      { [email ? 'email' : 'phone']: identifier, type },
+      {
+        [email ? 'email' : 'phone']: identifier,
+        code: 123456, // Replace with `otp` in production
+        type,
+        expiresAt: new Date(Date.now() + expiresIn),
+        attempts: 0,
+        isUsed: false,
+      },
+      { upsert: true, new: true }
+    );
+
+    // 🔹 8. Send OTP (uncomment when ready)
+    // if (email) {
+    //   await sendVerificationEmail(email, otp);
+    // } else {
+    //   await sendSMS(phone, `Your SkinSync Clinic OTP code is ${otp}`);
+    // }
+
+    // 🔹 9. Prepare clean response object
     const clinicObj = newClinic.toObject();
     delete clinicObj.password;
 
+    // 🔹 10. Respond with success + OTP info
     res.status(201).json({
       success: true,
-      message: 'Clinic registered successfully',
+      message: `Clinic registered successfully. OTP sent to your ${email ? 'email' : 'phone number'}.`,
       data: {
-        clinic: clinicObj
-      }
+        clinic: clinicObj,
+        otpInfo: {
+          identifier,
+          type,
+          expiresIn: expiresIn / 1000, // seconds
+        },
+      },
     });
   } catch (error) {
     console.error('Clinic signup error:', error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error during signup'
+      message: 'Internal server error during signup',
     });
   }
 };
@@ -310,6 +349,39 @@ export const clinicLogin = async (req, res) => {
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
+      });
+    }
+
+    // If email not verified — send OTP again
+    if (!clinic.isClinicEmailVerified) {
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresIn = 10 * 60 * 1000; // 10 minutes
+      const type = 'clinic_email_verification';
+
+      // Upsert OTP for email verification
+      await VerificationCode.findOneAndUpdate(
+        { email: clinic.email, type },
+        {
+          email: clinic.email,
+          code: 123456, // For testing, fixed OTP — replace with `otp` later
+          type,
+          expiresAt: new Date(Date.now() + expiresIn),
+          attempts: 0,
+          isUsed: false
+        },
+        { upsert: true, new: true }
+      );
+
+      // Optionally send via email or SMS
+      // await sendVerificationEmail(clinic.email, otp);
+
+      return res.status(403).json({
+        success: false,
+        message: 'Clinic email not verified. OTP sent again to email.',
+        data: {
+          email: clinic.email,
+          expiresIn: expiresIn / 1000
+        }
       });
     }
 
