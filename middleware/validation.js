@@ -1,29 +1,36 @@
 import { z } from 'zod';
 
-// Validation middleware factory
-export const validate = (schema) => {
+export const validate = (schema, source = 'body') => {
   return (req, res, next) => {
     try {
-      // Validate request body
-      const validatedData = schema.parse(req.body);
-      req.body = validatedData;
+      // Pick data source
+      const dataToValidate = req[source];
+
+      // Validate with Zod
+      const validatedData = schema.parse(dataToValidate);
+      req[source] = validatedData;
+
       next();
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           success: false,
-          message: 'Validation failed',
-          errors: error.errors.map(err => ({
+          message: `Validation failed in ${source}`,
+          errors: error.errors.map((err) => ({
             field: err.path.join('.'),
             message: err.message,
-            code: err.code
-          }))
+            code: err.code,
+            source, // 👈 add source info
+          })),
         });
       }
+
+      // Forward unexpected errors
       next(error);
     }
   };
 };
+
 
 // Validation middleware for query parameters
 export const validateQuery = (schema) => {

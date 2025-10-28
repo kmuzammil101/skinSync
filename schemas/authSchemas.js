@@ -15,25 +15,33 @@ const verificationCodeSchema = z.string()
 
 
 // Signup schema
-export const signupSchema = z.object({
-  name: z.string()
-    .min(2, 'Name must be at least 2 characters')
-    .max(50, 'Name cannot exceed 50 characters')
-    .regex(/^[a-zA-Z\s]+$/, 'Name can only contain letters and spaces'),
-  
-  email: emailSchema,
+export const signupSchema = z
+  .object({
+    name: z.string()
+      .min(2, 'Name must be at least 2 characters')
+      .max(50, 'Name cannot exceed 50 characters')
+      .regex(/^[a-zA-Z\s]+$/, 'Name can only contain letters and spaces'),
 
-  password: z.string()
-    .min(8, 'Password must be at least 8 characters long')
-    .max(100, 'Password cannot exceed 100 characters')
-    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-    .regex(/[0-9]/, 'Password must contain at least one number')
-    .regex(/[@$!%*?&#]/, 'Password must contain at least one special character'),
+    email: emailSchema,
 
-  phone: z.string()
-    .regex(/^[\+]?[1-9][\d]{7,14}$/, 'Please provide a valid phone number')
-});
+    password: z.string()
+      .min(8, 'Password must be at least 8 characters long')
+      .max(100, 'Password cannot exceed 100 characters')
+      .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+      .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+      .regex(/[0-9]/, 'Password must contain at least one number')
+      .regex(/[@$!%*?&#]/, 'Password must contain at least one special character'),
+
+    confirmPassword: z.string()
+      .min(8, 'Confirm password must be at least 8 characters long'),
+
+    phone: z.string()
+      .regex(/^[\+]?[1-9][\d]{7,14}$/, 'Please provide a valid phone number'),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'], // this tells Zod which field to show the error on
+  });
 
 
 // Send OTP for registration/login schema
