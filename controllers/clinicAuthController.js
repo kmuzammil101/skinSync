@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import Clinic from '../models/Clinic.js';
 import VerificationCode from '../models/VerificationCode.js';
+import bcrypt from "bcryptjs"
 import { sendVerificationEmail } from '../utils/emailService.js';
 import { sendSMS } from '../utils/phoneService.js';
 
@@ -78,71 +79,85 @@ export const verifyClinicOTP = async (req, res) => {
   try {
     const { email, phone, code } = req.body;
 
+    // 🧩 Validate input
     if ((!email && !phone) || !code) {
       return res.status(400).json({
         success: false,
-        message: 'Email or phone and OTP code are required.'
+        message: 'Email or phone and OTP code are required.',
       });
     }
 
-    const identifier = email || phone;
     const type = email ? 'clinic_email_verification' : 'phone_verification';
 
-    // Find verification record
-    const verificationRecord = await VerificationCode.findOne({
-      email: identifier,
-      code: code.toString(),
+    // 🧩 Find verification record
+    const verificationQuery = {
       type,
+      code: code.toString(),
       expiresAt: { $gt: new Date() },
-      isUsed: false
-    });
+      isUsed: false,
+      ...(email ? { email } : { phone }),
+    };
 
+    const verificationRecord = await VerificationCode.findOne(verificationQuery);
     if (!verificationRecord) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid or expired OTP'
+        message: 'Invalid or expired OTP.',
       });
     }
 
-    // Find or create clinic
-    let clinic = await Clinic.findOne({ $or: [{ email }, { phone }] });
-    let isNewUser = false;
+    // 🏥 Upsert clinic record
+    const updateFields = {
+      $set: {
+        ...(email
+          ? { isClinicEmailVerified: true, email }
+          : { isClinicPhoneVerified: true, phone }),
+        updatedAt: new Date(),
+      },
+      $setOnInsert: {
+        createdAt: new Date(),
+      },
+    };
 
-    if (!clinic) {
-      clinic = await Clinic.create({
-        email: email || undefined,
-        phone: phone || undefined
-      });
-      isNewUser = true;
-    }
+    const clinic = await Clinic.findOneAndUpdate(
+      { $or: [{ email }, { phone }] },
+      updateFields,
+      { upsert: true, new: true }
+    );
+    const isNewUser = clinic.createdAt.getTime() === clinic.updatedAt.getTime();
 
-    // Generate token
+    // 🪙 Generate token
     const token = generateToken(clinic._id);
 
-    // Mark OTP as used
+    // 🔒 Mark OTP as used
     verificationRecord.isUsed = true;
     await verificationRecord.save();
 
-    // Convert to object and attach token
-    clinic = clinic.toObject();
-    clinic.token = token;
+    // 🧩 Prepare response
+    const clinicResponse = clinic.toObject();
+    delete clinicResponse.password; // if password field exists
 
-    res.json({
+    return res.json({
       success: true,
-      message: `Clinic ${email ? 'email' : 'phone'} verified successfully`,
+      message: `Clinic ${email ? 'email' : 'phone'} verified successfully.`,
       data: {
-        clinic,
-        isNewUser
-      }
+        clinic: {
+          ...clinicResponse,
+          token,
+        },
+        isNewUser,
+      },
     });
   } catch (error) {
     console.error('Error verifying clinic OTP:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: 'Failed to verify OTP.'
+      message: 'Failed to verify OTP.',
     });
   }
 };
+
+
 
 
 export const resendClinicOTP = async (req, res) => {
@@ -248,9 +263,6 @@ export const clinicSignup = async (req, res) => {
       isClinicRegister: true
     });
 
-    // Generate JWT token
-    const token = generateToken(newClinic._id);
-
     // Send response
     const clinicObj = newClinic.toObject();
     delete clinicObj.password;
@@ -259,7 +271,6 @@ export const clinicSignup = async (req, res) => {
       success: true,
       message: 'Clinic registered successfully',
       data: {
-        token,
         clinic: clinicObj
       }
     });

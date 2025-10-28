@@ -38,7 +38,7 @@ const userSchema = new mongoose.Schema({
     type: [String],
     enum: [
       "Oily Skin",
-      "Dry Skin", 
+      "Dry Skin",
       "Combination Skin",
       "Sensitive Skin",
       "Normal Skin"
@@ -49,7 +49,7 @@ const userSchema = new mongoose.Schema({
     type: [String],
     enum: [
       "Acne Or Breakouts",
-      "Fine Lines Or Wrinkles", 
+      "Fine Lines Or Wrinkles",
       "Dark Spots Or Pigmentation",
       "Redness Or Irritation",
       "Dryness Or Dehydration",
@@ -73,7 +73,7 @@ const userSchema = new mongoose.Schema({
     type: [String],
     enum: [
       "Acne",
-      "Eczema", 
+      "Eczema",
       "Psoriasis",
       "Rosacea",
       "None Of The Above"
@@ -89,7 +89,7 @@ const userSchema = new mongoose.Schema({
     enum: [
       "Clearer Skin (Reduce Acne Or Breakouts)",
       "Brighter Skin (Reduce Dullness Or Dark Spots)",
-      "Firmer Skin (Reduce Fine Lines Or Wrinkles)", 
+      "Firmer Skin (Reduce Fine Lines Or Wrinkles)",
       "Hydrated Skin (Reduce Dryness Or Flakiness)",
       "Even Skin Tone (Reduce Redness Or Pigmentation)"
     ],
@@ -100,6 +100,10 @@ const userSchema = new mongoose.Schema({
     default: false
   },
   isPhoneVerified: {
+    type: Boolean,
+    default: false
+  },
+  isOnboardingCompleted: {
     type: Boolean,
     default: false
   },
@@ -133,9 +137,9 @@ const userSchema = new mongoose.Schema({
     default: 0
   },
   deviceToken: {
-  type: [String],
-  default: []
-}
+    type: [String],
+    default: []
+  }
   ,
   // In-app wallet fields (amounts stored in cents)
   walletBalance: {
@@ -153,7 +157,7 @@ const userSchema = new mongoose.Schema({
 // No password-related methods needed for passwordless authentication
 
 // Remove sensitive data from JSON output
-userSchema.methods.toJSON = function() {
+userSchema.methods.toJSON = function () {
   const userObject = this.toObject();
   delete userObject.emailVerificationCode;
   delete userObject.emailVerificationExpires;

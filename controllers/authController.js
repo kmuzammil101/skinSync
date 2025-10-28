@@ -4,6 +4,7 @@ import VerificationCode from '../models/VerificationCode.js';
 import { sendVerificationEmail, sendWelcomeEmail } from '../utils/emailService.js';
 import { sendSMS } from '../utils/phoneService.js';
 import bcrypt from 'bcryptjs';
+import { sendNotificationToDeviceAndSave } from '../utils/fcmService.js';
 
 // Generate JWT Token
 const generateToken = (userId) => {
@@ -66,74 +67,82 @@ export const loginController = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validate required fields
+    // 🔍 Validate required fields
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Email and password are required'
+        message: 'Email and password are required',
       });
     }
 
-    // Find user by email
+    // 🔍 Find user by email
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid email or password'
+        message: 'Invalid email or password',
       });
     }
 
-    // Compare password
+    // 🚫 Check email verification status
+    if (!user.isEmailVerified) {
+      return res.status(403).json({
+        success: false,
+        message: 'Please verify your email before logging in.',
+      });
+    }
+
+    // 🔑 Compare password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid email or password'
+        message: 'Invalid email or password',
       });
     }
 
-    // Generate token
+    // 🪙 Generate JWT token
     const token = generateToken(user._id);
 
-    // Update last login timestamp
+    // 🕒 Update last login timestamp
     user.lastLogin = new Date();
     await user.save();
 
-    // Remove password from response
+    // 🧩 Prepare response (remove sensitive fields)
     const userResponse = user.toObject();
     delete userResponse.password;
 
-    res.status(200).json({
+    sendNotificationToDeviceAndSave(user._id, user.deviceToken, {
+      title: 'Login successful',
+      message: 'You have logged in successfully',
+    });
+    return res.status(200).json({
       success: true,
       message: 'Login successful',
       data: {
         user: {
           ...userResponse,
-          token
-        }
-      }
+          token,
+          isOnboardingCompleted: !!user.isOnboardingCompleted, // ✅ Added field
+        },
+      },
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: 'Internal server error',
     });
   }
 };
+
+
 
 // Send OTP for registration/login
 export const sendOTP = async (req, res) => {
   try {
     const { type, email, phone } = req.body;
-
-    // Validate input
-    if (!type || !['email_verification', 'phone_verification'].includes(type)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid verification type. Must be email_verification or phone_verification.'
-      });
-    }
+    console.log(req.body)
 
     const target = type === 'email_verification' ? email : phone;
     if (!target) {
@@ -189,97 +198,6 @@ export const sendOTP = async (req, res) => {
   }
 };
 
-// Verify OTP and determine if user needs to complete profile
-// export const verifyOTP = async (req, res) => {
-//   try {
-//     const { email, code } = req.body;
-
-//     // Find verification code
-//     const verificationRecord = await VerificationCode.findOne({
-//       email,
-//       code,
-//       type: 'email_verification',
-//       isUsed: false,
-//       expiresAt: { $gt: new Date() }
-//     });
-
-//     if (!verificationRecord) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Invalid or expired OTP'
-//       });
-//     }
-
-//     // Check attempts
-//     if (verificationRecord.attempts >= 5) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Too many failed attempts. Please request a new OTP.'
-//       });
-//     }
-
-//     // Mark code as used
-//     verificationRecord.isUsed = true;
-//     await verificationRecord.save();
-
-//     // Check if user exists
-//     let user = await User.findOne({ email });
-
-//     if (!user) {
-//       // New user - create with minimal data (ensure required name present)
-//       const fallbackName = (email && email.split('@')[0]) || 'User';
-//       user = new User({
-//         email,
-//         name: fallbackName,
-//         isEmailVerified: true
-//       });
-//       await user.save();
-
-//       // Send welcome email
-//       // await sendWelcomeEmail(email, 'User');
-
-//       return res.json({
-//         success: true,
-//         message: 'OTP verified successfully. Please complete your profile.',
-//         data: {
-//           isNewUser: true,
-//           user: user.toJSON(),
-//           requiresProfileCompletion: true
-//         }
-//       });
-//     } else {
-//       // Existing user - update verification status and last login
-//       user.isEmailVerified = true;
-//       // Ensure required name exists for legacy users
-//       if (!user.name) {
-//         user.name = (email && email.split('@')[0]) || 'User';
-//       }
-//       user.lastLogin = new Date();
-//       await user.save();
-
-//       // Generate token for existing user
-//       const token = generateToken(user._id);
-
-//       return res.json({
-//         success: true,
-//         message: 'Login successful',
-//         data: {
-//           isNewUser: false,
-//           token,
-//           user: user.toJSON(),
-//           requiresProfileCompletion: !user.name // Check if profile is complete
-//         }
-//       });
-//     }
-
-//   } catch (error) {
-//     console.error('Verify OTP error:', error);
-//     res.status(500).json({
-//       success: false,
-//       message: 'Internal server error'
-//     });
-//   }
-// };
 
 export const verifyOTP = async (req, res) => {
   try {
@@ -288,13 +206,15 @@ export const verifyOTP = async (req, res) => {
 
     console.log(`Verifying OTP for ${type}:`, target, 'code:', code);
 
-    if (!type || !['email_verification', 'phone_verification'].includes(type)) {
+    // 🔍 Validate type
+    if (type !== 'email_verification' && type !== 'phone_verification') {
       return res.status(400).json({
         success: false,
         message: 'Invalid verification type. Must be email_verification or phone_verification.'
       });
     }
 
+    // 🔍 Ensure required data
     if (!target || !code) {
       return res.status(400).json({
         success: false,
@@ -302,15 +222,15 @@ export const verifyOTP = async (req, res) => {
       });
     }
 
-    // Check OTP validity
+    // 🔍 Check OTP validity
     const query = {
       [type === 'email_verification' ? 'email' : 'phone']: target,
       code,
       type,
-      expiresAt: { $gt: new Date() }
+      expiresAt: { $gt: new Date() },
     };
-    const verificationRecord = await VerificationCode.findOne(query);
 
+    const verificationRecord = await VerificationCode.findOne(query);
     if (!verificationRecord) {
       return res.status(400).json({
         success: false,
@@ -318,78 +238,56 @@ export const verifyOTP = async (req, res) => {
       });
     }
 
-    // Check if user exists
+    // 🔍 Find existing user
     const userQuery = type === 'email_verification' ? { email: target } : { phone: target };
     const existingUser = await User.findOne(userQuery);
 
     if (!existingUser) {
-      // 🆕 Create new user
-      const fallbackName = (target && target.split('@')[0]) || 'User';
-      const newUser = await User.findOneAndUpdate(
-        userQuery,
-        {
-          $setOnInsert: {
-            ...userQuery,
-            name: fallbackName,
-            isEmailVerified: type === 'email_verification',
-            isPhoneVerified: type === 'phone_verification',
-            createdAt: new Date(),
-          }
-        },
-        { upsert: true, new: true }
-      );
-
-      return res.json({
-        success: true,
-        message: 'OTP verified successfully. Please complete your profile.',
-        data: {
-          isNewUser: true,
-          requiresProfileCompletion: true,
-          user: {
-            ...newUser.toJSON(),
-            token: generateToken(newUser._id)
-          }
-        }
-      });
-    } else {
-      // ✅ Existing user: update verification + last login
-      const updatedUser = await User.findOneAndUpdate(
-        userQuery,
-        {
-          $set: {
-            ...(type === 'email_verification'
-              ? { isEmailVerified: true }
-              : { isPhoneVerified: true }),
-            lastLogin: new Date(),
-            name: existingUser.name || ((target && target.split('@')[0]) || 'User')
-          }
-        },
-        { new: true }
-      );
-
-      console.log('Existing user logged in:', updatedUser.email || updatedUser.phone);
-
-      return res.json({
-        success: true,
-        message: 'Login successful',
-        data: {
-          isNewUser: false,
-          requiresProfileCompletion: !updatedUser.name,
-          user: {
-            ...updatedUser.toJSON(),
-            token: generateToken(updatedUser._id)
-          }
-        }
+      return res.status(404).json({
+        success: false,
+        message: 'User not found. Please sign up first.'
       });
     }
+
+    // ✅ Update user verification flags
+    const updatedUser = await User.findOneAndUpdate(
+      userQuery,
+      {
+        $set: {
+          ...(type === 'email_verification'
+            ? { isEmailVerified: true }
+            : { isPhoneVerified: true }),
+          lastLogin: new Date(),
+        },
+      },
+      { new: true }
+    );
+
+    console.log('✅ User verified successfully:', updatedUser.email || updatedUser.phone);
+
+    // 🧩 Send response
+    return res.json({
+      success: true,
+      message: `${type === 'email_verification' ? 'Email' : 'Phone'} verified successfully.`,
+      data: {
+        isNewUser: true,
+        requiresProfileCompletion: true, // ✅ Always true for post-signup
+        user: {
+          ...updatedUser.toJSON(),
+          token: generateToken(updatedUser._id),
+        },
+      },
+    });
   } catch (error) {
-    console.error('Verify OTP error:', error);
-    res.status(500).json({
+    console.error('❌ Verify OTP error:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: 'Internal server error',
     });
   }
 };
+
+
 
 
 
@@ -439,6 +337,7 @@ export const completeProfile = async (req, res) => {
     if (skinCondition) updateData.skinCondition = skinCondition;
     if (medication) updateData.medication = medication;
     if (skinGoals) updateData.skinGoals = skinGoals;
+    updateData.isOnboardingCompleted = true;
 
     // Profile image handling
     if (profileImageFile && profileImageFile.filename) {

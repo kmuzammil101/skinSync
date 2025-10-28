@@ -85,16 +85,25 @@ export const updateNotificationPreferences = async (req, res) => {
     const { notificationsEnabled, deviceToken } = req.body;
     const userId = req.user.userId;
 
-    // Build update object
-    const updateData = { notificationsEnabled,deviceToken };
+    // Prepare update object
+    const updateData = { notificationsEnabled };
 
-    const user = await User.findByIdAndUpdate(
-      userId,
-      updateData,
-      { new: true }
-    );
+    // If a deviceToken is provided, add it to the array if it doesn’t already exist
+    if (deviceToken) {
+      await User.updateOne(
+        { _id: userId },
+        {
+          $set: updateData,
+          $addToSet: { deviceToken } // prevents duplicates automatically
+        }
+      );
+    } else {
+      await User.updateOne({ _id: userId }, { $set: updateData });
+    }
 
-    if (!user) {
+    const updatedUser = await User.findById(userId).select('notificationsEnabled deviceToken');
+
+    if (!updatedUser) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
@@ -105,11 +114,10 @@ export const updateNotificationPreferences = async (req, res) => {
       success: true,
       message: 'Notification preferences updated successfully',
       data: {
-        notificationsEnabled: user.notificationsEnabled,
-        deviceToken: user.deviceToken
+        notificationsEnabled: updatedUser.notificationsEnabled,
+        deviceToken: updatedUser.deviceToken
       }
     });
-
   } catch (error) {
     console.error('Update notification preferences error:', error);
     res.status(500).json({
@@ -118,6 +126,7 @@ export const updateNotificationPreferences = async (req, res) => {
     });
   }
 };
+
 
 
 // Delete user account

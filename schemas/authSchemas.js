@@ -38,13 +38,21 @@ export const signupSchema = z.object({
 
 // Send OTP for registration/login schema
 export const sendOTPSchema = z.object({
-  email: emailSchema
+  email: emailSchema,
+  type: z.enum(['email_verification', 'phone_verification'], {
+    required_error: 'Verification type is required',
+    invalid_type_error: 'Invalid verification type',
+  }),
 });
 
 // Verify OTP schema (for both registration and login)
 export const verifyOTPSchema = z.object({
   email: emailSchema,
-  code: verificationCodeSchema
+  code: verificationCodeSchema,
+  type: z.enum(['email_verification', 'phone_verification'], {
+    required_error: 'Verification type is required',
+    invalid_type_error: 'Invalid verification type',
+  }),
 });
 
 // Complete profile after OTP verification schema
@@ -52,25 +60,30 @@ export const completeProfileSchema = z.object({
   name: z.string()
     .min(2, 'Name must be at least 2 characters')
     .max(50, 'Name cannot exceed 50 characters')
-    .regex(/^[a-zA-Z0-9\s]+$/, 'Name can only contain letters, numbers, and spaces')
-  ,
+    .regex(/^[a-zA-Z0-9\s]+$/, 'Name can only contain letters, numbers, and spaces'),
+
   phone: z.string()
     .regex(/^[\+]?[1-9][\d]{0,15}$/, 'Please provide a valid phone number')
     .optional(),
+
   location: z.string()
     .max(100, 'Location cannot exceed 100 characters')
     .optional(),
+
   bio: z.string()
     .max(500, 'Bio cannot exceed 500 characters')
     .optional(),
+
   email: emailSchema,
+
   profileImage: z.string().optional(),
   skintype: z.array(z.string()).optional(),
   skinConcerns: z.array(z.string()).optional(),
   lifestyle: z.array(z.string()).optional(),
   skinCondition: z.array(z.string()).optional(),
   medication: z.string().optional(),
-  skinGoals: z.array(z.string()).optional()
+  skinGoals: z.array(z.string()).optional(),
+  isOnboardingCompleted: z.boolean().default(false)
 });
 
 // Social login schema

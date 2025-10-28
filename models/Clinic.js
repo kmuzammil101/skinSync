@@ -50,9 +50,17 @@ const clinicSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
-    isClinicRegister:{
+    isClinicRegister: {
         type: Boolean,
         default: false
+    }, 
+    isClinicEmailVerified: {
+        type: Boolean,
+        default: false,
+    },
+    isClinicPhoneVerified: {
+        type: Boolean,
+        default: false,
     },
     description: {
         type: String,
