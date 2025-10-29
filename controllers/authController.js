@@ -251,79 +251,172 @@ export const sendOTP = async (req, res) => {
 };
 
 
+// export const verifyOTP = async (req, res) => {
+//   try {
+//     const { type, email, phone, code } = req.body;
+//     const target = type === 'email_verification' ? email : phone;
+
+//     console.log(`Verifying OTP for ${type}:`, target, 'code:', code);
+
+//     // 🔍 Validate type
+//     if (type !== 'email_verification' && type !== 'phone_verification') {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Invalid verification type. Must be email_verification or phone_verification.'
+//       });
+//     }
+
+//     // 🔍 Ensure required data
+//     if (!target || !code) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Target and OTP code are required'
+//       });
+//     }
+
+//     // 🔍 Check OTP validity
+//     const query = {
+//       [type === 'email_verification' ? 'email' : 'phone']: target,
+//       code,
+//       type,
+//       expiresAt: { $gt: new Date() },
+//     };
+
+//     const verificationRecord = await VerificationCode.findOne(query);
+//     if (!verificationRecord) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Invalid or expired OTP'
+//       });
+//     }
+
+//     // 🔍 Find existing user
+//     const userQuery = type === 'email_verification' ? { email: target } : { phone: target };
+//     const existingUser = await User.findOne(userQuery);
+
+//     if (!existingUser) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'User not found. Please sign up first.'
+//       });
+//     }
+
+//     // ✅ Update user verification flags
+//     const updatedUser = await User.findOneAndUpdate(
+//       userQuery,
+//       {
+//         $set: {
+//           ...(type === 'email_verification'
+//             ? { isEmailVerified: true }
+//             : { isPhoneVerified: true }),
+//           lastLogin: new Date(),
+//         },
+//       },
+//       { new: true }
+//     );
+
+//     console.log('✅ User verified successfully:', updatedUser.email || updatedUser.phone);
+
+//     // 🧩 Send response
+//     return res.json({
+//       success: true,
+//       message: `${type === 'email_verification' ? 'Email' : 'Phone'} verified successfully.`,
+//       data: {
+//         isNewUser: true,
+//         requiresProfileCompletion: true, // ✅ Always true for post-signup
+//         user: {
+//           ...updatedUser.toJSON(),
+//           token: generateToken(updatedUser._id),
+//         },
+//       },
+//     });
+//   } catch (error) {
+//     console.error('❌ Verify OTP error:', error);
+//     return res.status(500).json({
+//       success: false,
+//       message: 'Internal server error',
+//     });
+//   }
+// };
+
+
+
 export const verifyOTP = async (req, res) => {
   try {
     const { type, email, phone, code } = req.body;
-    const target = type === 'email_verification' ? email : phone;
 
-    console.log(`Verifying OTP for ${type}:`, target, 'code:', code);
+    // Determine target
+    const target = email || phone;
 
-    // 🔍 Validate type
-    if (type !== 'email_verification' && type !== 'phone_verification') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid verification type. Must be email_verification or phone_verification.'
-      });
-    }
-
-    // 🔍 Ensure required data
     if (!target || !code) {
       return res.status(400).json({
         success: false,
-        message: 'Target and OTP code are required'
+        message: 'Email/phone and OTP code are required.'
       });
     }
 
-    // 🔍 Check OTP validity
-    const query = {
-      [type === 'email_verification' ? 'email' : 'phone']: target,
-      code,
-      type,
-      expiresAt: { $gt: new Date() },
-    };
-
-    const verificationRecord = await VerificationCode.findOne(query);
-    if (!verificationRecord) {
+    // Determine query type
+    let otpType = type || 'password_reset'; // default to password_reset if not provided
+    if (!['password_reset', 'email_verification', 'phone_verification'].includes(otpType)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid or expired OTP'
+        message: 'Invalid verification type.'
       });
     }
 
-    // 🔍 Find existing user
-    const userQuery = type === 'email_verification' ? { email: target } : { phone: target };
-    const existingUser = await User.findOne(userQuery);
+    // Build query for OTP
+    const query = {
+      code: code.toString(),
+      type: otpType,
+      expiresAt: { $gt: new Date() },
+      isUsed: false
+    };
 
-    if (!existingUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found. Please sign up first.'
+    if (otpType === 'email_verification' || otpType === 'password_reset') query.email = email;
+    if (otpType === 'phone_verification') query.phone = phone;
+
+    const record = await VerificationCode.findOne(query);
+
+    if (!record) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+    }
+
+    // Find user
+    const userQuery = email ? { email } : { phone };
+    const user = await User.findOne(userQuery);
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    // Mark OTP as used
+    record.isUsed = true;
+    await record.save();
+
+    // Handle password reset
+    if (otpType === 'password_reset') {
+      const resetToken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
+      return res.json({
+        success: true,
+        message: 'OTP verified. Use this token to reset your password.',
+        data: { resetToken }
       });
     }
 
-    // ✅ Update user verification flags
-    const updatedUser = await User.findOneAndUpdate(
-      userQuery,
-      {
-        $set: {
-          ...(type === 'email_verification'
-            ? { isEmailVerified: true }
-            : { isPhoneVerified: true }),
-          lastLogin: new Date(),
-        },
-      },
-      { new: true }
-    );
+    // Handle email/phone verification
+    const updateFields = {};
+    if (otpType === 'email_verification') updateFields.isEmailVerified = true;
+    if (otpType === 'phone_verification') updateFields.isPhoneVerified = true;
+    updateFields.lastLogin = new Date();
 
-    console.log('✅ User verified successfully:', updatedUser.email || updatedUser.phone);
+    const updatedUser = await User.findOneAndUpdate(userQuery, { $set: updateFields }, { new: true });
 
-    // 🧩 Send response
     return res.json({
       success: true,
-      message: `${type === 'email_verification' ? 'Email' : 'Phone'} verified successfully.`,
+      message: `${otpType === 'email_verification' ? 'Email' : 'Phone'} verified successfully.`,
       data: {
         isNewUser: true,
-        requiresProfileCompletion: true, // ✅ Always true for post-signup
+        requiresProfileCompletion: true,
         user: {
           ...updatedUser.toJSON(),
           token: generateToken(updatedUser._id),
@@ -332,12 +425,10 @@ export const verifyOTP = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Verify OTP error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-    });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
+
 
 
 
