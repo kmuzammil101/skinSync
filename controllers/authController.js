@@ -141,6 +141,7 @@ export const loginController = async (req, res) => {
       return res.status(403).json({
         success: false,
         message: 'Email not verified. OTP has been sent to your email for verification.',
+        isEmailVerified: false,
         data: {
           type: 'email_verification',
           target: user.email,
