@@ -666,58 +666,58 @@ export const sendForgotPasswordOTP = async (req, res) => {
 
 
 
-export const verifyForgotPasswordOTP = async (req, res) => {
-  try {
-    const { email, phone, code } = req.body;
+// export const verifyForgotPasswordOTP = async (req, res) => {
+//   try {
+//     const { email, phone, code } = req.body;
 
-    if ((!email && !phone) || !code) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email or phone and OTP are required.'
-      });
-    }
+//     if ((!email && !phone) || !code) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Email or phone and OTP are required.'
+//       });
+//     }
 
-    const identifier = email || phone;
-    const type = 'password_reset';
+//     const identifier = email || phone;
+//     const type = 'password_reset';
 
-    const record = await VerificationCode.findOne({
-      email: identifier,
-      code: code.toString(),
-      type,
-      expiresAt: { $gt: new Date() },
-      isUsed: false
-    });
+//     const record = await VerificationCode.findOne({
+//       email: identifier,
+//       code: code.toString(),
+//       type,
+//       expiresAt: { $gt: new Date() },
+//       isUsed: false
+//     });
 
-    if (!record) {
-      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
-    }
+//     if (!record) {
+//       return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+//     }
 
-    const user = await User.findOne({email});
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'Account not found.' });
-    }
+//     const user = await User.findOne({email});
+//     if (!user) {
+//       return res.status(404).json({ success: false, message: 'Account not found.' });
+//     }
 
-    // Mark OTP used
-    record.isUsed = true;
-    await record.save();
+//     // Mark OTP used
+//     record.isUsed = true;
+//     await record.save();
 
-    // Generate a temporary reset token (valid 15 min)
-    const resetToken = jwt.sign(
-      { userId: user._id },
-      process.env.JWT_SECRET,
-      { expiresIn: '15m' }
-    );
+//     // Generate a temporary reset token (valid 15 min)
+//     const resetToken = jwt.sign(
+//       { userId: user._id },
+//       process.env.JWT_SECRET,
+//       { expiresIn: '15m' }
+//     );
 
-    res.json({
-      success: true,
-      message: 'OTP verified. Use this token to reset your password.',
-      data: { resetToken }
-    });
-  } catch (error) {
-    console.error('Verify forgot password OTP error:', error);
-    res.status(500).json({ success: false, message: 'Server error.' });
-  }
-};
+//     res.json({
+//       success: true,
+//       message: 'OTP verified. Use this token to reset your password.',
+//       data: { resetToken }
+//     });
+//   } catch (error) {
+//     console.error('Verify forgot password OTP error:', error);
+//     res.status(500).json({ success: false, message: 'Server error.' });
+//   }
+// };
 
 
 export const resendForgotPasswordOTP = async (req, res) => {

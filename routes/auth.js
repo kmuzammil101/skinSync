@@ -18,7 +18,7 @@ import {
   signupController,
   loginController,
   sendForgotPasswordOTP,
-  verifyForgotPasswordOTP,
+  // verifyForgotPasswordOTP,
   resetPassword,
   resendForgotPasswordOTP
 } from '../controllers/authController.js';
@@ -81,7 +81,7 @@ router.post('/social-login',
 //forget password
 
 router.post('/forget-password/send-otp',sendForgotPasswordOTP)
-router.post('/forget-password/verify-otp',verifyForgotPasswordOTP)
+// router.post('/forget-password/verify-otp',verifyForgotPasswordOTP)
 router.post('/forget-password/resend-otp',resendForgotPasswordOTP)
 router.post('/forget-password/reset',resetPassword)
 

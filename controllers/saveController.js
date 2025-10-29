@@ -51,13 +51,21 @@ export const toggleSave = async (req, res) => {
 };
 
 
+//cininc name //buisness hours and isSaved key true and false
 
 export const getSavedItems = async (req, res) => {
   try {
     const userId = req.user.userId;
 
     const saved = await Save.findOne({ userId })
-      .populate("savedTreatments", "name image price")
+      .populate({
+        path: 'savedTreatments',
+        select: 'name image price clinicId',
+        populate: {
+          path: 'clinicId',
+          select: 'businessHours name'
+        }
+      })
       .populate("savedClinics", "name image address businessHours");
 
     res.status(200).json({
