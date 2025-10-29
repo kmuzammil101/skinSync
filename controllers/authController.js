@@ -534,7 +534,7 @@ export const sendForgotPasswordOTP = async (req, res) => {
     const expiresIn = 10 * 60 * 1000; // 10 minutes
 
     // Check if user/clinic exists
-    const user = await User.findOne({ $or: [{ email }, { phone: phone }] });
+    const user = await User.findOne({email});
     console.log(user)
     if (!user) {
       return res.status(404).json({ success: false, message: 'Account not found.' });
@@ -601,7 +601,7 @@ export const verifyForgotPasswordOTP = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
     }
 
-    const user = await User.findOne({ $or: [{ email }, { phone: phone }] });
+    const user = await User.findOne({email});
     if (!user) {
       return res.status(404).json({ success: false, message: 'Account not found.' });
     }
@@ -660,7 +660,7 @@ export const resendForgotPasswordOTP = async (req, res) => {
     }
 
     // 3️⃣ Ensure user exists
-    const user = await User.findOne({ $or: [{ email }, { phone }] });
+    const user = await User.findOne({email});
     if (!user) {
       return res.status(404).json({
         success: false,
