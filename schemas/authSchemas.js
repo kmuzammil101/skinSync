@@ -57,7 +57,7 @@ export const sendOTPSchema = z.object({
 export const verifyOTPSchema = z.object({
   email: emailSchema,
   code: verificationCodeSchema,
-  type: z.enum(['email_verification', 'phone_verification'], {
+  type: z.enum(['email_verification', 'phone_verification','password_reset'], {
     required_error: 'Verification type is required',
     invalid_type_error: 'Invalid verification type',
   }),
