@@ -121,6 +121,7 @@ export const getTreatments = async (req, res) => {
               _id: "$_id",
               name: "$name",
               image: "$image",
+              price: "$price",
               clinicName: "$clinic.name",
               businessHours: "$clinic.businessHours"
             }

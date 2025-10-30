@@ -1,5 +1,4 @@
-import admin from 'firebase-admin';
-admin.initializeApp();
+import admin from './firebaseAdmin.js';
 
 const db = admin.firestore();
 
@@ -10,9 +9,7 @@ export const sendVerificationEmail = async (email, code) => {
       message: {
         subject: 'Verify Your Email - SkinSync AI',
         html: `
-          <!-- your full HTML with ${
-            code
-          } inserted -->
+          <!-- your full HTML with ${code} inserted -->
         `
       }
     });
