@@ -6,7 +6,7 @@ import { readFileSync } from 'fs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const serviceAccountPath = path.join(__dirname, '../skinsync-2aa8e-firebase-adminsdk-fbsvc-5f2fdd2a8b.json');
+const serviceAccountPath = path.join(__dirname, '../skinsync-2aa8e-2b2fff3c35ea.json');
 const serviceAccount = JSON.parse(readFileSync(serviceAccountPath, 'utf8'));
 
 // initialize Firebase only once
