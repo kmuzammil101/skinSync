@@ -18,14 +18,15 @@ import {
 
 import { onboardClinic, getClinicWallet, withdrawFromWallet } from '../../controllers/clinicController.js';
 import { authenticateClinicToken } from '../../middleware/clinicAuth.js';
+import { authenticateToken } from '../../middleware/auth.js';
 
 const router = express.Router();
 
 // Public routes (no authentication required)
 router.get('/', getClinics);
 router.get('/location', getClinicsByLocation);
-router.get('/getClinicById/:id', getClinicById);
 router.get('/:id/reviews', getClinicReviews);
+router.get('/getClinicById/:id', authenticateToken, getClinicById);
 
 // Protected routes (authentication required)
 router.use(authenticateClinicToken);
@@ -36,7 +37,7 @@ router.post('/:id/withdraw', withdrawFromWallet);
 
 
 //home page of clinic dashboard
-router.get('/home',homePageDataOfClinic);
+router.get('/home', homePageDataOfClinic);
 
 router.get('/date/:date', getAppointmentsOfClinicByDate);
 

@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs";
 // ✅ Safely load JSON file manually instead of ESM import (works in all Node versions)
 const __dirname = path.resolve();
-const serviceAccountPath = path.join(__dirname, 'skinsync-2aa8e-firebase-adminsdk-fbsvc-5f2fdd2a8b.json');
+const serviceAccountPath = path.join(__dirname, './skinsync-2aa8e-firebase-adminsdk-fbsvc-5f2fdd2a8b.json');
 const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf-8'));
 
 // -------------------------------------------------------------
