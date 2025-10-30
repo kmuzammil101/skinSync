@@ -20,8 +20,8 @@ export const sendNotificationToDeviceAndSave = async (userId, deviceTokens = [],
     }
 
     const baseMessage = {
-      notification: { title: newNotification.title, body: newNotification.message },
-      data: { type: newNotification.type, notificationId: newNotification._id.toString(), ...Object.fromEntries(Object.entries(newNotification.metadata || {}).map(([k, v]) => [String(k), String(v)])) },
+      // notification: {},
+      data: { title: newNotification.title, body: newNotification.message, type: newNotification.type, notificationId: newNotification._id.toString(), ...Object.fromEntries(Object.entries(newNotification.metadata || {}).map(([k, v]) => [String(k), String(v)])) },
       android: { notification: { icon: 'ic_notification', color: '#667eea', sound: 'default', channelId: 'skinsync_notifications', priority: 'high' } },
       apns: { payload: { aps: { alert: { title: newNotification.title, body: newNotification.message }, badge: 1, sound: 'default', category: 'SKINSYNC_NOTIFICATION' } }, headers: { 'apns-priority': '10' } },
     };
