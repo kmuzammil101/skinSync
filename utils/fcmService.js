@@ -2,76 +2,8 @@ import admin from './firebaseAdmin.js'; // use the single exported instance
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 
-// export const sendNotificationToDeviceAndSave = async (userId, deviceTokens = [], notificationData) => {
-//   try {
-//     // Create notification document in MongoDB
-//     const newNotification = await Notification.create({
-//       userId,
-//       title: notificationData.title,
-//       message: notificationData.message,
-//       type: notificationData.type || 'general',
-//       metadata: notificationData.metadata || {},
-//       scheduledFor: notificationData.scheduledFor || Date.now(),
-//     });
-
-//     if (!deviceTokens.length) {
-//       console.warn('⚠️ No device tokens found for user.');
-//       return { success: true, notification: newNotification, message: 'No device tokens to send to.' };
-//     }
-
-//     const baseMessage = {
-//       // notification: {},
-//       data: { title: newNotification.title, body: newNotification.message, type: newNotification.type, notificationId: newNotification._id.toString(), ...Object.fromEntries(Object.entries(newNotification.metadata || {}).map(([k, v]) => [String(k), String(v)])) },
-//       android: { notification: { icon: 'ic_notification', color: '#667eea', sound: 'default', channelId: 'skinsync_notifications', priority: 'high' } },
-//       apns: { payload: { aps: { alert: { title: newNotification.title, body: newNotification.message }, badge: 1, sound: 'default', category: 'SKINSYNC_NOTIFICATION' } }, headers: { 'apns-priority': '10' } },
-//     };
-
-//     const responses = await Promise.allSettled(
-//       deviceTokens.map(async (token, idx) => {
-//         try {
-//           const message = { ...baseMessage, token };
-//           const response = await admin.messaging().send(message);
-//           console.log(`✅ Sent to token [${idx + 1}]: ${token}`);
-//           return { token, success: true, messageId: response };
-//         } catch (error) {
-//           console.error(`❌ Error sending to ${token}:`, error.message);
-//           const code = error.code || 'unknown';
-//           if (code === 'messaging/invalid-registration-token' || code === 'messaging/registration-token-not-registered') {
-//             await User.updateOne({ _id: userId }, { $pull: { deviceToken: token } });
-//           }
-//           return { token, success: false, error: code, errorMessage: error.message };
-//         }
-//       })
-//     );
-
-//     const successCount = responses.filter(r => r.status === 'fulfilled' && r.value.success).length;
-//     const failedCount = responses.length - successCount;
-
-//     return { success: true, message: `Notification sent to ${successCount} devices, failed for ${failedCount}.`, notification: newNotification, results: responses };
-
-//   } catch (error) {
-//     console.error('❌ Error in sendNotificationToDeviceAndSave:', error);
-//     return { success: false, error: error.message };
-//   }
-// };
-
-
-// -----------------------
-// 🔹 Send notification to a single device
-// -----------------------
-
-
 export const sendNotificationToDeviceAndSave = async (userId, deviceTokens = [], notificationData) => {
   try {
-    console.log(`🔔 Triggered sendNotificationToDeviceAndSave for user: ${userId}`);
-
-    // Remove duplicate tokens
-    deviceTokens = [...new Set(deviceTokens)];
-    if (!deviceTokens.length) {
-      console.warn('⚠️ No device tokens found for user.');
-      return { success: true, message: 'No device tokens to send to.' };
-    }
-
     // Create notification document in MongoDB
     const newNotification = await Notification.create({
       userId,
@@ -82,33 +14,24 @@ export const sendNotificationToDeviceAndSave = async (userId, deviceTokens = [],
       scheduledFor: notificationData.scheduledFor || Date.now(),
     });
 
-    console.log(`📄 Notification created: ${newNotification._id}`);
+    if (!deviceTokens.length) {
+      console.warn('⚠️ No device tokens found for user.');
+      return { success: true, notification: newNotification, message: 'No device tokens to send to.' };
+    }
 
     const baseMessage = {
-      data: {
-        title: newNotification.title,
-        body: newNotification.message,
-        type: newNotification.type,
-        notificationId: newNotification._id.toString(),
-        ...Object.fromEntries(Object.entries(newNotification.metadata || {}).map(([k, v]) => [String(k), String(v)]))
-      },
-      android: {
-        notification: { icon: 'ic_notification', color: '#667eea', sound: 'default', channelId: 'skinsync_notifications', priority: 'high' }
-      },
-      apns: {
-        payload: {
-          aps: { alert: { title: newNotification.title, body: newNotification.message }, badge: 1, sound: 'default', category: 'SKINSYNC_NOTIFICATION' }
-        },
-        headers: { 'apns-priority': '10' }
-      },
+      // notification: {},
+      data: { title: newNotification.title, body: newNotification.message, type: newNotification.type, notificationId: newNotification._id.toString(), ...Object.fromEntries(Object.entries(newNotification.metadata || {}).map(([k, v]) => [String(k), String(v)])) },
+      android: { notification: { icon: 'ic_notification', color: '#667eea', sound: 'default', channelId: 'skinsync_notifications', priority: 'high' } },
+      apns: { payload: { aps: { alert: { title: newNotification.title, body: newNotification.message }, badge: 1, sound: 'default', category: 'SKINSYNC_NOTIFICATION' } }, headers: { 'apns-priority': '10' } },
     };
 
     const responses = await Promise.allSettled(
       deviceTokens.map(async (token, idx) => {
         try {
-          console.log(`🚀 Sending to token [${idx + 1}]: ${token}`);
           const message = { ...baseMessage, token };
           const response = await admin.messaging().send(message);
+          console.log(`✅ Sent to token [${idx + 1}]: ${token}`);
           return { token, success: true, messageId: response };
         } catch (error) {
           console.error(`❌ Error sending to ${token}:`, error.message);
@@ -124,12 +47,7 @@ export const sendNotificationToDeviceAndSave = async (userId, deviceTokens = [],
     const successCount = responses.filter(r => r.status === 'fulfilled' && r.value.success).length;
     const failedCount = responses.length - successCount;
 
-    return {
-      success: true,
-      message: `Notification sent to ${successCount} devices, failed for ${failedCount}.`,
-      notification: newNotification,
-      results: responses
-    };
+    return { success: true, message: `Notification sent to ${successCount} devices, failed for ${failedCount}.`, notification: newNotification, results: responses };
 
   } catch (error) {
     console.error('❌ Error in sendNotificationToDeviceAndSave:', error);
@@ -138,7 +56,9 @@ export const sendNotificationToDeviceAndSave = async (userId, deviceTokens = [],
 };
 
 
-
+// -----------------------
+// 🔹 Send notification to a single device
+// -----------------------
 
 
 
