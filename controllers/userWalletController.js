@@ -1,5 +1,6 @@
 import User from '../models/User.js';
 import UserTransaction from '../models/UserTransaction.js';
+import Promotion from '../models/Promotion.js';
 
 // GET /api/user/wallet?page=1&limit=20
 export const getUserWallet = async (req, res) => {
@@ -23,10 +24,25 @@ export const getUserWallet = async (req, res) => {
 
     const total = await UserTransaction.countDocuments({ userId: user._id });
 
+    // Fetch active promotions that are currently valid
+    const currentDate = new Date();
+    const promotions = await Promotion.find({
+      isActive: true,
+      validFrom: { $lte: currentDate },
+      validTill: { $gte: currentDate }
+    })
+      .populate('clinicId', 'name')
+      .populate('treatmentId', 'name price')
+      .sort({ createdAt: -1 })
+      .lean();
+
     res.json({
       success: true,
       data: {
+        walletBalance: user.walletBalance,
+        heldBalance: user.heldBalance,
         transactions,
+        promotions,
         pagination: {
           currentPage: page,
           totalPages: Math.ceil(total / limit),
