@@ -1,4 +1,5 @@
 import User from '../models/User.js';
+import UserTransaction from '../models/UserTransaction.js';
 
 // Get user profile
 export const getUserProfile = async (req, res) => {
@@ -160,3 +161,64 @@ export const deleteUserAccount = async (req, res) => {
     });
   }
 };
+
+
+export const getUserTransactions = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // Get pagination parameters from query, with defaults
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Get total count of transactions for pagination info
+    const totalTransactions = await UserTransaction.countDocuments({ userId });
+
+    // Get paginated transactions and populate treatment name
+    const transactions = await UserTransaction.find({ userId })
+      .populate({
+        path: 'appointmentId',
+        populate: {
+          path: 'treatmentId',
+          select: 'name'
+        }
+      })
+      .select('amount type appointmentId')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    // Transform transactions to include only required fields
+    const formattedTransactions = transactions.map(transaction => {
+      const transactionObj = {
+        _id: transaction._id,
+        treatmentName: transaction.appointmentId?.treatmentId?.name || null,
+        amount: transaction.amount
+      };
+
+      if (transaction.type === 'platform_charge') {
+        transactionObj.status = 'paid';
+      }
+
+      return transactionObj;
+    });
+
+    res.json({
+      success: true,
+      page,
+      limit,
+      total: totalTransactions,
+      totalPages: Math.ceil(totalTransactions / limit),
+      data: formattedTransactions
+    });
+
+  } catch (error) {
+    console.error('Error in getUserTransactions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+

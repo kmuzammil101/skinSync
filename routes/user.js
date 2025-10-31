@@ -9,7 +9,8 @@ import {
   getUserProfile,
   updateUserProfile,
   updateNotificationPreferences,
-  deleteUserAccount
+  deleteUserAccount,
+  getUserTransactions
 } from '../controllers/userController.js';
 import { getUserWallet } from '../controllers/userWalletController.js';
 
@@ -32,6 +33,9 @@ router.put('/notifications',
 );
 
 router.delete('/account', deleteUserAccount);
+
+//transactions
+router.get('/transactions',getUserTransactions)
 
 // Wallet
 router.get('/wallet', getUserWallet);
