@@ -94,7 +94,8 @@ const treatmentSchema = new mongoose.Schema({
   ratingsCount: {
     type: Number,
     default: 0
-  }
+  },
+  
 }, {
   timestamps: true
 });

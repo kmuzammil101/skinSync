@@ -26,8 +26,14 @@ const appointmentSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['pending', 'confirmed', 'cancelled', 'paid', 'failed', 'refunded','completed','ongoing'],
+        enum: ['pending', 'confirmed', 'cancelled', 'paid', 'failed', 'refunded', 'completed', 'ongoing'],
         default: 'pending'
+    },
+    completionPercentage: {
+        type: Number,
+        min: 0,
+        max: 100,
+        default: 0
     },
     // Payment related fields
     amount: { type: Number }, // price in smallest currency unit (e.g., cents)

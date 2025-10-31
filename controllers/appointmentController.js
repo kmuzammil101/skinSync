@@ -533,3 +533,58 @@ export const getUpcomingAppointments = async (req, res) => {
     });
   }
 };
+
+
+//trackAppointmentProgressController
+
+
+export const getAppointmentsByStatusController = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    console.log(userId)
+    const { status } = req.query;
+
+    // Validate status
+    if (!["ongoing", "completed"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Status must be either 'ongoing' or 'completed'"
+      });
+    }
+
+    // Fetch appointments by status
+    const appointments = await Appointment.find({
+      userId,
+      status
+    })
+      .populate("clinicId", "name address")
+      .populate("treatmentId", "name price image")
+      .sort({ createdAt: -1 });
+
+    // Format response
+    const formattedAppointments = appointments.map(app => ({
+      appointmentId: app._id,
+      treatmentName: app.treatmentId?.name || "Unknown",
+      clinicName: app.clinicId?.name || "Unknown",
+      date: app.date,
+      time: app.time,
+      status: app.status,
+      completionPercentage: status === "ongoing" ? app.completionPercentage : 100,
+      amount: app.amount,
+      paymentStatus: app.paymentStatus
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: formattedAppointments.length,
+      data: formattedAppointments
+    });
+
+  } catch (error) {
+    console.error("Get Appointments By Status error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};

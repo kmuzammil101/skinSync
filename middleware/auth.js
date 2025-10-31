@@ -6,7 +6,7 @@ export const authenticateToken = async (req, res, next) => {
   try {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-
+    
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -28,7 +28,7 @@ export const authenticateToken = async (req, res, next) => {
       userId: user._id,
       email: user.email
     };
-
+    console.log(req.user.userId,">>>>>>>>>>>>>>>>>>>>>>")
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError') {

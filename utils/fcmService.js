@@ -2,8 +2,23 @@ import admin from './firebaseAdmin.js'; // use the single exported instance
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 
-export const sendNotificationToDeviceAndSave = async (userId, deviceTokens = [], notificationData) => {
+
+
+
+const checkUserNotificationEnabled = async (userId) => {
+  const user = await User.findById(userId).select("notificationsEnabled deviceToken");
+  if (!user) throw new Error("User not found");
+  return { enabled: user.notificationsEnabled, deviceTokens: user.deviceToken || [] };
+};
+
+
+export const sendNotificationToDeviceAndSave = async (userId, notificationData) => {
   try {
+    const { enabled, deviceTokens } = await checkUserNotificationEnabled(userId);
+    if (!enabled) {
+      console.log(`⚠️ Notifications are turned off for user ${userId}`);
+      return { success: false, message: "Notifications are turned off for this user." };
+    }
     // Create notification document in MongoDB
     const newNotification = await Notification.create({
       userId,
@@ -62,8 +77,13 @@ export const sendNotificationToDeviceAndSave = async (userId, deviceTokens = [],
 
 
 
-export const sendNotificationToDevice = async (deviceToken, notification) => {
+export const sendNotificationToDevice = async ( notification) => {
   try {
+    const { enabled, deviceToken } = await checkUserNotificationEnabled(userId);
+    if (!enabled) {
+      console.log(`⚠️ Notifications are turned off for user ${userId}`);
+      return { success: false, message: "Notifications are turned off for this user." };
+    }
     const message = {
       token: deviceToken,
       notification: {

@@ -8,7 +8,8 @@ import {
   cancelAppointment,
   getMonthSlots,
   getUpcomingAppointments,
-  createAppointmentPayment
+  createAppointmentPayment,
+  getAppointmentsByStatusController
 } from '../controllers/appointmentController.js';
 
 const router = express.Router();
@@ -19,22 +20,23 @@ router.use(authenticateToken);
 // Create appointment
 router.post('/book-appointment', createAppointmentPayment);
 
-
-
 // Get all appointments for user
 router.get('/', getAppointments);
 
 // Get upcoming appointments
 router.get('/upcoming', getUpcomingAppointments);
 
-// Get appointment by ID
-router.get('/:id', getAppointmentById);
-
 // Get appointments by date
 router.get('/date/:date', getAppointmentsByDate);
 
-// Get available slots for a month (days adjusted by month length)
+// Get available slots for a month
 router.get('/slots/:clinicId/:year/:month', getMonthSlots);
+
+// Track appointment progress (static route MUST come before dynamic :id)
+router.get('/get-appointment-progress', getAppointmentsByStatusController);
+
+// Get appointment by ID (dynamic route)
+router.get('/:id', getAppointmentById);
 
 // Update appointment status
 router.put('/:id/status', updateAppointmentStatus);
