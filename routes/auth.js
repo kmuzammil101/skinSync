@@ -20,8 +20,10 @@ import {
   sendForgotPasswordOTP,
   // verifyForgotPasswordOTP,
   resetPassword,
-  resendForgotPasswordOTP
+  resendForgotPasswordOTP,
+  logoutController
 } from '../controllers/authController.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 
 const router = express.Router();
@@ -33,7 +35,13 @@ router.post('/signup',
 
 router.post('/login',
   loginController
-)
+);
+
+// Logout - requires authentication
+router.post('/logout',
+  authenticateToken,
+  logoutController
+);
 
 // Send OTP for registration/login
 router.post('/send-otp', 

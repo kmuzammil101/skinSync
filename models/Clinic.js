@@ -53,7 +53,7 @@ const clinicSchema = new mongoose.Schema({
     isClinicRegister: {
         type: Boolean,
         default: false
-    }, 
+    },
     isClinicEmailVerified: {
         type: Boolean,
         default: false,
@@ -136,6 +136,14 @@ const clinicSchema = new mongoose.Schema({
         type: Boolean,
         default: true
     },
+    deviceToken: {
+        type: [String],
+        default: []
+    },
+    notificationsEnabled: {
+        type: Boolean,
+        default: false
+    }
 }, {
     timestamps: true
 });

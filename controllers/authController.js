@@ -860,7 +860,7 @@ export const resetPassword = async (req, res) => {
 // Social login (Google/Apple)
 export const socialLogin = async (req, res) => {
   try {
-    const { type, idToken, name } = req.body;
+    const { type, idToken, name, deviceToken } = req.body;
 
     if (!type || !['google', 'apple'].includes(type)) {
       return res.status(400).json({
@@ -877,6 +877,7 @@ export const socialLogin = async (req, res) => {
     }
 
     // 🔹 Decode the JWT (NO signature verification!)
+    // In production, you should verify the token signature with Google/Apple
     const decoded = jwt.decode(idToken);
     if (!decoded || !decoded.email) {
       return res.status(400).json({
@@ -893,7 +894,8 @@ export const socialLogin = async (req, res) => {
       user = new User({
         email: normalizedEmail,
         name: name || decoded.name || 'User',
-        isEmailVerified: true
+        isEmailVerified: true,
+        deviceToken: deviceToken ? (Array.isArray(deviceToken) ? deviceToken : [deviceToken]) : []
       });
       await user.save();
 
@@ -915,6 +917,15 @@ export const socialLogin = async (req, res) => {
       user.name = name || decoded.name;
     }
     user.lastLogin = new Date();
+
+    // Update device token if provided
+    if (deviceToken) {
+      const tokens = Array.isArray(deviceToken) ? deviceToken : [deviceToken];
+      const existingTokens = user.deviceToken || [];
+      const newTokens = [...new Set([...existingTokens, ...tokens])];
+      user.deviceToken = newTokens;
+    }
+
     await user.save();
 
     const token = generateToken(user._id);
@@ -933,6 +944,38 @@ export const socialLogin = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Internal server error'
+    });
+  }
+};
+
+// ------------------ 🔴 LOGOUT ------------------
+export const logoutController = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+
+    // Clear device tokens
+    await User.findByIdAndUpdate(
+      userId,
+      { $set: { deviceToken: [] } },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: 'Logged out successfully. Please discard the JWT token on the client side.'
+    });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error during logout'
     });
   }
 };

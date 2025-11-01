@@ -77,28 +77,42 @@ export const sendClinicOTP = async (req, res) => {
 // ------------------ 🔵 VERIFY OTP ------------------
 export const verifyClinicOTP = async (req, res) => {
   try {
-    const { email, phone, code } = req.body;
+    const { email, phone, code, purpose } = req.body;
 
     // 🧩 Validate input
-    if ((!email && !phone) || !code) {
+    if ((!email && !phone) || !code || !purpose) {
       return res.status(400).json({
         success: false,
-        message: 'Email or phone and OTP code are required.',
+        message: 'Email or phone, OTP code, and purpose are required.',
       });
     }
 
-    const type = email ? 'clinic_email_verification' : 'phone_verification';
+    const identifier = email || phone;
+
+    let type;
+    switch (purpose) {
+      case 'verification':
+        type = email ? 'clinic_email_verification' : 'phone_verification';
+        break;
+      case 'forgot_password':
+        type = email ? 'clinic_forget_email' : 'clinic_forget_phone';
+        break;
+      default:
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid purpose provided.',
+        });
+    }
 
     // 🧩 Find verification record
-    const verificationQuery = {
-      type,
+    const verificationRecord = await VerificationCode.findOne({
       code: code.toString(),
+      type,
       expiresAt: { $gt: new Date() },
       isUsed: false,
       ...(email ? { email } : { phone }),
-    };
+    });
 
-    const verificationRecord = await VerificationCode.findOne(verificationQuery);
     if (!verificationRecord) {
       return res.status(400).json({
         success: false,
@@ -106,48 +120,76 @@ export const verifyClinicOTP = async (req, res) => {
       });
     }
 
-    // 🏥 Upsert clinic record
-    const updateFields = {
-      $set: {
-        ...(email
-          ? { isClinicEmailVerified: true, email }
-          : { isClinicPhoneVerified: true, phone }),
-        updatedAt: new Date(),
-      },
-      $setOnInsert: {
-        createdAt: new Date(),
-      },
-    };
-
-    const clinic = await Clinic.findOneAndUpdate(
-      { $or: [{ email }, { phone }] },
-      updateFields,
-      { upsert: true, new: true }
-    );
-    const isNewUser = clinic.createdAt.getTime() === clinic.updatedAt.getTime();
-
-    // 🪙 Generate token
-    const token = generateToken(clinic._id);
-
-    // 🔒 Mark OTP as used
-    verificationRecord.isUsed = true;
-    await verificationRecord.save();
-
-    // 🧩 Prepare response
-    const clinicResponse = clinic.toObject();
-    delete clinicResponse.password; // if password field exists
-
-    return res.json({
-      success: true,
-      message: `Clinic ${email ? 'email' : 'phone'} verified successfully.`,
-      data: {
-        clinic: {
-          ...clinicResponse,
-          token,
+    // ✅ Handle based on purpose
+    if (purpose === 'verification') {
+      // 🏥 Upsert clinic record
+      const updateFields = {
+        $set: {
+          ...(email
+            ? { isClinicEmailVerified: true, email }
+            : { isClinicPhoneVerified: true, phone }),
+          updatedAt: new Date(),
         },
-        isNewUser,
-      },
-    });
+        $setOnInsert: {
+          createdAt: new Date(),
+        },
+      };
+
+      const clinic = await Clinic.findOneAndUpdate(
+        { $or: [{ email }, { phone }] },
+        updateFields,
+        { upsert: true, new: true }
+      );
+
+      const isNewUser = clinic.createdAt.getTime() === clinic.updatedAt.getTime();
+
+      // 🔒 Generate auth token
+      const token = generateToken(clinic._id);
+
+      // Mark OTP as used
+      verificationRecord.isUsed = true;
+      await verificationRecord.save();
+
+      const clinicResponse = clinic.toObject();
+      delete clinicResponse.password; // Remove password if exists
+
+      return res.json({
+        success: true,
+        message: `Clinic ${email ? 'email' : 'phone'} verified successfully.`,
+        data: {
+          clinic: {
+            ...clinicResponse,
+            token,
+          },
+          isNewUser,
+        },
+      });
+    } else if (purpose === 'forgot_password') {
+      const clinic = await Clinic.findOne({ $or: [{ email }, { phone }] });
+      if (!clinic) {
+        return res.status(404).json({
+          success: false,
+          message: 'Clinic not found.',
+        });
+      }
+
+      // Generate short-lived reset token (15 min)
+      const resetToken = jwt.sign(
+        { clinicId: clinic._id },
+        process.env.JWT_SECRET,
+        { expiresIn: '15m' }
+      );
+
+      // Mark OTP as used
+      verificationRecord.isUsed = true;
+      await verificationRecord.save();
+
+      return res.json({
+        success: true,
+        message: 'OTP verified successfully. Use the token to reset your password.',
+        data: { resetToken },
+      });
+    }
   } catch (error) {
     console.error('Error verifying clinic OTP:', error);
     return res.status(500).json({
@@ -233,7 +275,7 @@ export const resendClinicOTP = async (req, res) => {
 
 export const clinicSignup = async (req, res) => {
   try {
-    const { name, email, password, phone } = req.body;
+    const { name, email, password, phone, deviceToken } = req.body;
 
     // 🔹 1. Validate required fields
     if (!name || !email || !password || !phone) {
@@ -255,7 +297,7 @@ export const clinicSignup = async (req, res) => {
     // 🔹 3. Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 🔹 4. Create new clinic
+    // 🔹 4. Create new clinic with optional deviceToken
     const newClinic = await Clinic.create({
       name,
       email,
@@ -263,6 +305,7 @@ export const clinicSignup = async (req, res) => {
       password: hashedPassword,
       isClinicRegister: true,
       isClinicEmailVerified: false,
+      deviceToken: deviceToken ? Array.isArray(deviceToken) ? deviceToken : [deviceToken] : [],
     });
 
     // 🔹 5. Generate OTP
@@ -270,9 +313,7 @@ export const clinicSignup = async (req, res) => {
     const expiresIn = 10 * 60 * 1000; // 10 minutes
 
     // 🔹 6. Determine verification type (email first)
-    const type = email
-      ? 'clinic_email_verification'
-      : 'phone_verification';
+    const type = email ? 'clinic_email_verification' : 'phone_verification';
     const identifier = email || phone;
 
     // 🔹 7. Save / Update OTP in VerificationCode collection
@@ -280,7 +321,7 @@ export const clinicSignup = async (req, res) => {
       { [email ? 'email' : 'phone']: identifier, type },
       {
         [email ? 'email' : 'phone']: identifier,
-        code: 123456, // Replace with `otp` in production
+        code: otp, // Use actual OTP
         type,
         expiresAt: new Date(Date.now() + expiresIn),
         attempts: 0,
@@ -619,6 +660,144 @@ export const resetClinicPassword = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to reset password.'
+    });
+  }
+};
+
+// ------------------ 🔵 CLINIC SOCIAL LOGIN (Google/Apple) ------------------
+export const clinicSocialLogin = async (req, res) => {
+  try {
+    const { type, idToken, name, deviceToken } = req.body;
+
+    // Validate type
+    if (!type || !['google', 'apple'].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Type must be either google or apple'
+      });
+    }
+
+    if (!idToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'idToken is required'
+      });
+    }
+
+    // Decode the JWT (NO signature verification in this basic implementation)
+    // In production, you should verify the token signature with Google/Apple
+    const decoded = jwt.decode(idToken);
+    if (!decoded || !decoded.email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid token: email not found'
+      });
+    }
+
+    const normalizedEmail = decoded.email.toLowerCase();
+
+    // Check if clinic exists
+    let clinic = await Clinic.findOne({ email: normalizedEmail });
+
+    if (!clinic) {
+      // Create new clinic account
+      // Generate a random password for social login accounts (they won't use it)
+      const randomPassword = await bcrypt.hash(Math.random().toString(36) + Date.now().toString(), 10);
+      clinic = new Clinic({
+        email: normalizedEmail,
+        name: name || decoded.name || 'Clinic',
+        isClinicEmailVerified: true,
+        isClinicRegister: true,
+        password: randomPassword, // Random password for social login accounts
+        deviceToken: deviceToken ? (Array.isArray(deviceToken) ? deviceToken : [deviceToken]) : []
+      });
+      await clinic.save();
+
+      const token = generateToken(clinic._id);
+      const clinicObj = clinic.toObject();
+      delete clinicObj.password;
+
+      return res.json({
+        success: true,
+        message: `Clinic login successful via ${type}`,
+        data: {
+          token,
+          clinic: clinicObj,
+          isNewUser: true
+        }
+      });
+    }
+
+    // Existing clinic
+    clinic.isClinicEmailVerified = true;
+    clinic.isClinicRegister = true;
+    
+    // Update name if provided and not set
+    if ((name || decoded.name) && !clinic.name) {
+      clinic.name = name || decoded.name;
+    }
+
+    // Update device token if provided
+    if (deviceToken) {
+      const tokens = Array.isArray(deviceToken) ? deviceToken : [deviceToken];
+      const existingTokens = clinic.deviceToken || [];
+      const newTokens = [...new Set([...existingTokens, ...tokens])];
+      clinic.deviceToken = newTokens;
+    }
+
+    await clinic.save();
+
+    const token = generateToken(clinic._id);
+    const clinicObj = clinic.toObject();
+    delete clinicObj.password;
+
+    return res.json({
+      success: true,
+      message: `Clinic login successful via ${type}`,
+      data: {
+        token,
+        clinic: clinicObj,
+        isNewUser: false
+      }
+    });
+
+  } catch (error) {
+    console.error('Clinic social login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error during social login'
+    });
+  }
+};
+
+// ------------------ 🔴 CLINIC LOGOUT ------------------
+export const clinicLogout = async (req, res) => {
+  try {
+    const clinicId = req.clinic?.clinicId;
+
+    if (!clinicId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Clinic not authenticated'
+      });
+    }
+
+    // Clear device tokens
+    await Clinic.findByIdAndUpdate(
+      clinicId,
+      { $set: { deviceToken: [] } },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: 'Clinic logged out successfully. Please discard the JWT token on the client side.'
+    });
+  } catch (error) {
+    console.error('Clinic logout error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error during logout'
     });
   }
 };
