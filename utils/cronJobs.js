@@ -187,7 +187,7 @@ export const initializeCronJobs = () => {
   // Run daily at 9:00 AM
   // Cron format: minute hour day month weekday
   // '0 9 * * *' = Every day at 9:00 AM
-  cron.schedule('0 9 * * *', async () => {
+  cron.schedule('* * * * *', async () => {
     console.log('⏰ Appointment reminder cron job triggered at', new Date().toISOString());
     await sendAppointmentReminders();
   }, {
