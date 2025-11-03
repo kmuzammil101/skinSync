@@ -20,8 +20,12 @@ export const sendNotificationToDeviceAndSave = async (userId, notificationData) 
       return { success: false, message: "Notifications are turned off for this user." };
     }
     // Create notification document in MongoDB
+    // Extract clinicId from notificationData or metadata if available
+    const clinicId = notificationData.clinicId || notificationData.metadata?.clinicId || undefined;
+
     const newNotification = await Notification.create({
       userId,
+      clinicId: clinicId, // Optional field - can be undefined for user-only notifications
       title: notificationData.title,
       message: notificationData.message,
       type: notificationData.type || 'general',

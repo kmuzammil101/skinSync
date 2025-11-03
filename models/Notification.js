@@ -9,7 +9,7 @@ const notificationSchema = new mongoose.Schema({
   clinicId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Clinic',
-    required: true
+    required: false
   },
   title: {
     type: String,

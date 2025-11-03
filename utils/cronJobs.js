@@ -34,8 +34,10 @@ export const sendAppointmentReminders = async () => {
     // Find appointments that are between today and 5 days from now
     // Only get confirmed/paid appointments that haven't been cancelled or completed
     const fiveDaysFromNow = new Date(today);
+    console.log(fiveDaysFromNow)
     fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
     fiveDaysFromNow.setHours(23, 59, 59, 999);
+    console.log(fiveDaysFromNow,">>>>>")
 
     const appointments = await Appointment.find({
       date: {
@@ -114,10 +116,11 @@ export const sendAppointmentReminders = async () => {
                 title: reminderTitle,
                 message: userMessage,
                 type: 'appointment_reminder',
+                clinicId: appointment.clinicId?._id || null,
                 metadata: {
                   appointmentId: appointment._id.toString(),
-                  clinicId: appointment.clinicId._id.toString(),
-                  treatmentId: appointment.treatmentId?._id.toString() || '',
+                  clinicId: appointment.clinicId?._id?.toString() || '',
+                  treatmentId: appointment.treatmentId?._id?.toString() || '',
                   reminderType: `${daysRemaining}_days_before`,
                   daysRemaining: daysRemaining.toString()
                 },
@@ -187,7 +190,7 @@ export const initializeCronJobs = () => {
   // Run daily at 9:00 AM
   // Cron format: minute hour day month weekday
   // '0 9 * * *' = Every day at 9:00 AM
-  cron.schedule('* * * * *', async () => {
+  cron.schedule('0 9 * * *', async () => {
     console.log('⏰ Appointment reminder cron job triggered at', new Date().toISOString());
     await sendAppointmentReminders();
   }, {
