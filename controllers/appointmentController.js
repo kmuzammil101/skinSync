@@ -571,7 +571,8 @@ export const getAppointmentsByStatusController = async (req, res) => {
       status: app.status,
       completionPercentage: status === "ongoing" ? app.completionPercentage : 100,
       amount: app.amount,
-      paymentStatus: app.paymentStatus
+      paymentStatus: app.paymentStatus,
+      image: app.treatmentId?.image
     }));
 
     res.status(200).json({
