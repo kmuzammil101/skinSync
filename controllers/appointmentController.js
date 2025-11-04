@@ -194,7 +194,7 @@ export const rescheduleAppointment = async (req, res) => {
     }
 
     // ✅ Cancel old appointment
-    existingAppointment.status = "cancelled";
+    existingAppointment.status = "reschedule_on_another_day";
 
     // ✅ Create new appointment with updated date/time
     const newAppointment = new Appointment({
