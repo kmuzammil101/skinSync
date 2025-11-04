@@ -9,7 +9,8 @@ import {
   getMonthSlots,
   getUpcomingAppointments,
   createAppointmentPayment,
-  getAppointmentsByStatusController
+  getAppointmentsByStatusController,
+  rescheduleAppointment
 } from '../controllers/appointmentController.js';
 
 const router = express.Router();
@@ -19,6 +20,9 @@ router.use(authenticateToken);
 
 // Create appointment
 router.post('/book-appointment', createAppointmentPayment);
+
+//reschedule appointment
+router.post('/reschedule-appointment',rescheduleAppointment)
 
 // Get all appointments for user
 router.get('/', getAppointments);

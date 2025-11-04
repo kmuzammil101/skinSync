@@ -4,7 +4,8 @@ import Clinic from '../models/Clinic.js';
 import User from '../models/User.js';
 import Stripe from 'stripe';
 import dotenv from 'dotenv';
-
+import { sendNotificationToDeviceAndSave } from "../utils/fcmService.js"
+import { sendNotificationToClinicAndSave } from "../utils/fcmForClinic.js"
 dotenv.config();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-08-16' });
 
@@ -158,6 +159,103 @@ export const createAppointmentPayment = async (req, res) => {
       return res.status(400).json({ success: false, message: error.message });
     }
     res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+//reschedule appoitment
+export const rescheduleAppointment = async (req, res) => {
+  try {
+    const { appointmentId, date, time } = req.body;
+    const userId = req.user.userId;
+
+    // ✅ Validate input
+    if (!appointmentId || !date || !time) {
+      return res.status(400).json({
+        success: false,
+        message: "appointmentId, date, and time are required",
+      });
+    }
+
+    // ✅ Fetch existing appointment
+    const existingAppointment = await Appointment.findById(appointmentId);
+    if (!existingAppointment) {
+      return res.status(404).json({
+        success: false,
+        message: "Appointment not found",
+      });
+    }
+
+    // ✅ Check ownership
+    if (existingAppointment.userId.toString() !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to reschedule this appointment",
+      });
+    }
+
+    // ✅ Cancel old appointment
+    existingAppointment.status = "cancelled";
+
+    // ✅ Create new appointment with updated date/time
+    const newAppointment = new Appointment({
+      ...existingAppointment.toObject(), // copy all fields
+      _id: undefined,                   // remove old id
+      date,
+      time,
+      status: "confirmed",
+    });
+
+    // ✅ Save both concurrently
+    await Promise.all([existingAppointment.save(), newAppointment.save()]);
+
+    const formattedDate = new Date(date).toLocaleDateString();
+    const userNotification = {
+      clinicId: existingAppointment.clinicId,
+      title: "Appointment Rescheduled",
+      message: `Your appointment has been rescheduled to ${time} on ${formattedDate}.`,
+      type: "appointment_reschedule",
+      metadata: {
+        appointmentId: newAppointment._id.toString(),
+        oldAppointmentId: existingAppointment._id.toString(),
+        date,
+        time,
+      },
+    };
+
+    const clinicNotification = {
+      userId: existingAppointment.userId,
+      title: "Appointment Rescheduled",
+      message: `A patient rescheduled their appointment to ${time} on ${formattedDate}.`,
+      type: "appointment_reschedule",
+      metadata: {
+        appointmentId: newAppointment._id.toString(),
+        userId: existingAppointment.userId.toString(),
+        date,
+        time,
+      },
+    };
+
+    // ✅ Send notifications concurrently
+    await Promise.all([
+      sendNotificationToDeviceAndSave(existingAppointment.userId, userNotification),
+      sendNotificationToClinicAndSave(existingAppointment.clinicId, clinicNotification),
+    ]);
+
+    // ✅ Return response
+    res.status(200).json({
+      success: true,
+      message: "Appointment rescheduled successfully",
+      oldAppointment: existingAppointment,
+      newAppointment,
+    });
+
+  } catch (error) {
+    console.error("Error rescheduling appointment:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
   }
 };
 

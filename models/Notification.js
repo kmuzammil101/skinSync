@@ -26,7 +26,8 @@ const notificationSchema = new mongoose.Schema({
   type: {
     type: String,
     enum: [
-      'appointment_reminder', 
+      'appointment_reminder',
+      'appointment_reschedule', 
       'appointment_confirmed', 
       'appointment_cancelled',
       'promotion', 
